@@ -181,7 +181,7 @@ const App: React.FC = () => {
                 <h3 className="text-xl font-bold flex items-center gap-3"><Server className="text-indigo-500" /> API Configuration</h3>
                 <div className="space-y-4">
                     <p className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                        To enable real Telegram integration, go to your <b>Vercel Project Settings > Environment Variables</b> and add:<br/><br/>
+                        To enable real Telegram integration, go to your <b>Vercel Project Settings &gt; Environment Variables</b> and add:<br/><br/>
                         <code>TELEGRAM_BOT_TOKEN</code><br/>
                         <code>TELEGRAM_CHANNEL_ID</code>
                     </p>
