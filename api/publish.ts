@@ -12,56 +12,55 @@ const supabase = createClient(
 );
 
 /**
- * Загрузка фото в ВК с учетом специфики токенов сообщества
+ * Загрузка фото в ВК
  */
 async function uploadPhotoToVK(accessToken: string, targetId: number, base64Image: string) {
   const isGroup = targetId < 0;
-  const groupId = Math.abs(targetId);
+  const absId = Math.abs(targetId);
 
-  // 1. Получаем сервер. ВАЖНО: для токенов сообщества group_id ОБЯЗАТЕЛЕН
-  const serverRes = await axios.get(`https://api.vk.com/method/photos.getWallUploadServer`, {
-    params: {
-      access_token: accessToken,
-      group_id: isGroup ? groupId : undefined, // Если это группа, передаем ID без минуса
-      v: '5.131'
-    }
-  });
+  // 1. Получаем сервер для загрузки
+  const serverParams: any = {
+    access_token: accessToken,
+    v: '5.131'
+  };
+  // Для токенов сообщества group_id ОБЯЗАТЕЛЕН
+  if (isGroup) serverParams.group_id = absId;
+
+  const serverRes = await axios.get(`https://api.vk.com/method/photos.getWallUploadServer`, { params: serverParams });
 
   if (serverRes.data.error) {
     const err = serverRes.data.error;
-    // Ошибка 27 - Group authorization failed обычно значит, что не передан group_id или токен не от этой группы
-    if (err.error_code === 27 || err.error_msg.includes('group auth')) {
-      throw new Error(`ВК: Ошибка авторизации группы. Убедитесь, что Ключ Доступа создан именно в той группе, ID которой вы указали (${groupId}).`);
-    }
-    throw new Error(`VK Upload Server Error: ${err.error_msg} (Код: ${err.error_code})`);
+    throw new Error(`[UploadServer] ${err.error_msg} (код ${err.error_code}). Проверьте права 'photos' в ключе.`);
   }
   
   const uploadUrl = serverRes.data.response.upload_url;
 
-  // 2. Загружаем байты
+  // 2. Загружаем файл
   const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
   const form = new FormData();
   form.append('photo', buffer, { filename: 'image.png' });
 
-  const uploadRes = await axios.post(uploadUrl, form, {
-    headers: form.getHeaders()
-  });
+  const uploadRes = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
 
-  // 3. Сохраняем. Здесь тоже важен group_id для групповых токенов
-  const saveRes = await axios.get(`https://api.vk.com/method/photos.saveWallPhoto`, {
-    params: {
-      access_token: accessToken,
-      group_id: isGroup ? groupId : undefined,
-      user_id: !isGroup ? groupId : undefined,
-      photo: uploadRes.data.photo,
-      server: uploadRes.data.server,
-      hash: uploadRes.data.hash,
-      v: '5.131'
-    }
-  });
+  // 3. Сохраняем фото на стене
+  const saveParams: any = {
+    access_token: accessToken,
+    photo: uploadRes.data.photo,
+    server: uploadRes.data.server,
+    hash: uploadRes.data.hash,
+    v: '5.131'
+  };
+  
+  if (isGroup) {
+    saveParams.group_id = absId;
+  } else {
+    saveParams.user_id = absId;
+  }
+
+  const saveRes = await axios.get(`https://api.vk.com/method/photos.saveWallPhoto`, { params: saveParams });
 
   if (saveRes.data.error) {
-    throw new Error(`ВК ошибка сохранения фото: ${saveRes.data.error.error_msg}`);
+    throw new Error(`[SavePhoto] ${saveRes.data.error.error_msg}`);
   }
 
   const photo = saveRes.data.response[0];
@@ -69,38 +68,47 @@ async function uploadPhotoToVK(accessToken: string, targetId: number, base64Imag
 }
 
 async function publishToVK(accessToken: string, ownerId: string, message: string, image?: string) {
-  // Очистка ID от лишних букв
+  // Обработка ID: убираем префиксы, но сохраняем минус если он есть
   let cleanIdStr = ownerId.trim().toLowerCase()
     .replace('id', '').replace('club', '').replace('public', '').replace(' ', '');
   
   let numericId = parseInt(cleanIdStr, 10);
   if (isNaN(numericId)) throw new Error('ВК: ID должен быть числом.');
 
-  // Если это группа (или похоже на группу), гарантируем минус
-  const isGroup = numericId < 0 || ownerId.includes('-') || ownerId.includes('club') || ownerId.includes('public');
-  if (isGroup && numericId > 0) numericId = -numericId;
+  // Если в строке был "club" или "public" или "-", это точно группа
+  const isExplicitGroup = ownerId.includes('-') || ownerId.includes('club') || ownerId.includes('public');
+  if (isExplicitGroup && numericId > 0) numericId = -numericId;
 
   let attachment = "";
+  let photoError = "";
+
   if (image && image.startsWith('data:image')) {
-    attachment = await uploadPhotoToVK(accessToken, numericId, image);
+    try {
+      attachment = await uploadPhotoToVK(accessToken, numericId, image);
+    } catch (e: any) {
+      console.error("VK Image Upload Failed:", e.message);
+      photoError = ` (Картинка не загружена: ${e.message})`;
+    }
   }
 
-  const response = await axios.post(`https://api.vk.com/method/wall.post`, null, {
+  // Публикуем пост (даже если картинка не загрузилась)
+  const postRes = await axios.post(`https://api.vk.com/method/wall.post`, null, {
     params: {
       access_token: accessToken,
       owner_id: numericId,
-      from_group: isGroup ? 1 : 0,
+      from_group: numericId < 0 ? 1 : 0,
       message: message,
       attachments: attachment,
       v: '5.131'
     }
   });
   
-  if (response.data.error) {
-    const err = response.data.error;
-    throw new Error(`ВК: ${err.error_msg} (Код: ${err.error_code})`);
+  if (postRes.data.error) {
+    const err = postRes.data.error;
+    throw new Error(`ВК: ${err.error_msg} (код ${err.error_code})`);
   }
-  return response.data;
+  
+  return photoError ? { partial: true, error: photoError } : { success: true };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -128,11 +136,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const botToken = account.credentials.botToken?.trim();
         const rawChatId = (account.credentials.chatId || '').toString().trim();
 
-        if (!botToken || !rawChatId) throw new Error('Telegram: данные не заполнены');
+        if (!botToken || !rawChatId) throw new Error('Данные не заполнены');
 
-        // ГИБКАЯ ОБРАБОТКА ЧАТ ID
         let finalChatId: string | number = rawChatId;
-        // Проверяем, является ли это числом (включая отрицательные)
         if (/^-?\d+$/.test(rawChatId)) {
           finalChatId = Number(rawChatId);
         } else if (!rawChatId.startsWith('@')) {
@@ -153,15 +159,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const token = account.credentials.accessToken?.trim();
         const ownerId = (account.credentials.ownerId || '').toString().trim();
         
-        await publishToVK(token, ownerId, text, image);
-        results.push({ platform: account.platform, name: account.name, status: 'success' });
+        const vkRes = await publishToVK(token, ownerId, text, image);
+        
+        results.push({ 
+          platform: account.platform, 
+          name: account.name, 
+          status: vkRes.partial ? 'failed' : 'success', 
+          error: vkRes.error || undefined 
+        });
 
       } else {
-        results.push({ platform: account.platform, name: account.name, status: 'failed', error: 'Not implemented' });
+        results.push({ platform: account.platform, name: account.name, status: 'failed', error: 'Platform not supported' });
       }
     } catch (e: any) {
       let msg = e.message || 'Error';
-      if (msg.includes('chat not found')) msg = "ТГ: Чат не найден. Проверьте ID и добавьте бота в админы.";
+      if (msg.includes('chat not found')) msg = "ТГ: Чат не найден.";
       results.push({ platform: account.platform, name: account.name, status: 'failed', error: msg });
     }
   }

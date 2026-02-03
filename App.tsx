@@ -32,7 +32,8 @@ import {
   ShieldAlert,
   Key,
   Edit2,
-  ShieldCheck
+  ShieldCheck,
+  Bug
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -222,6 +223,41 @@ const App: React.FC = () => {
       refreshData();
     } catch (e) {
       alert("Ошибка удаления");
+    }
+  };
+
+  // ФУНКЦИЯ ДЛЯ ТЕСТОВОГО ПОСТА (БЕЗ AI)
+  const handleDebugPost = async () => {
+    if (accounts.length === 0) {
+      alert("Сначала подключите хотя бы один аккаунт");
+      return;
+    }
+
+    if (!confirm("Запустить тестовую публикацию на все каналы? Это НЕ тратит AI-токены.")) return;
+
+    // Маленькая картинка (синий квадрат) в base64 для тестов
+    const testImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwL+Y50v5AAAAABJRU5ErkJggg==";
+    
+    const testArticle: Article = {
+      id: 'debug_' + Date.now(),
+      userId: user?.id || '',
+      source: 'OmniPost Debugger',
+      originalText: 'Тестовый пост',
+      timestamp: new Date().toISOString(),
+      status: 'approved',
+      rewrittenText: `🔍 OmniPost AI Debug: Тестовое сообщение.\n\nДата: ${new Date().toLocaleString()}\nСтатус связи: OK\n\nЕсли вы это видите — ваша интеграция настроена успешно!`,
+      generatedImageUrl: testImage
+    };
+
+    setIsDeploying(true);
+    setSelectedArticle(testArticle); // Чтобы открылась модалка с результатами
+    try {
+      const result = await postToPlatforms(testArticle);
+      setDeployResults(result.results);
+    } catch (e: any) {
+      alert("Ошибка отладки: " + e.message);
+    } finally {
+      setIsDeploying(false);
     }
   };
 
@@ -448,12 +484,21 @@ const App: React.FC = () => {
                   <h3 className="text-2xl font-bold text-white">Каналы публикации</h3>
                   <p className="text-slate-500 text-sm">Настройте свои площадки для автоматического постинга.</p>
                 </div>
-                <button 
-                  onClick={openAddAccount}
-                  className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
-                >
-                  <Plus size={20} /> Новая интеграция
-                </button>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={handleDebugPost}
+                    title="Проверить связь без затрат токенов ИИ"
+                    className="bg-slate-800 hover:bg-slate-700 px-6 py-3 rounded-2xl font-bold text-indigo-400 border border-indigo-500/20 flex items-center gap-2 transition-all"
+                  >
+                    <Bug size={18} /> Отладка каналов
+                  </button>
+                  <button 
+                    onClick={openAddAccount}
+                    className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
+                  >
+                    <Plus size={20} /> Новая интеграция
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -627,22 +672,28 @@ const App: React.FC = () => {
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                            <Layers size={14} /> Варианты от ИИ
                         </p>
-                        {selectedArticle.rewrittenVariants?.map((variant, idx) => (
-                           <button 
-                             key={idx}
-                             onClick={() => handleSelectVariant(idx)}
-                             className={`w-full p-6 rounded-3xl border text-left transition-all relative group overflow-hidden ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500 ring-1 ring-indigo-500 shadow-2xl shadow-indigo-600/10' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'}`}
-                           >
-                              <div className="flex justify-between items-start mb-2">
-                                 <h4 className={`font-black text-[11px] uppercase tracking-wider ${selectedArticle.selectedVariantIndex === idx ? 'text-indigo-300' : 'text-slate-500'}`}>{variant.title}</h4>
-                                 {selectedArticle.selectedVariantIndex === idx && <Check size={18} className="text-indigo-400" />}
-                              </div>
-                              <p className={`text-sm leading-relaxed ${selectedArticle.selectedVariantIndex === idx ? 'text-white' : 'text-slate-400'} line-clamp-3 group-hover:line-clamp-none transition-all`}>
-                                 {variant.content}
-                              </p>
-                              {selectedArticle.selectedVariantIndex === idx && <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>}
-                           </button>
-                        ))}
+                        {selectedArticle.rewrittenVariants ? (
+                           selectedArticle.rewrittenVariants.map((variant, idx) => (
+                             <button 
+                               key={idx}
+                               onClick={() => handleSelectVariant(idx)}
+                               className={`w-full p-6 rounded-3xl border text-left transition-all relative group overflow-hidden ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500 ring-1 ring-indigo-500 shadow-2xl shadow-indigo-600/10' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'}`}
+                             >
+                                <div className="flex justify-between items-start mb-2">
+                                   <h4 className={`font-black text-[11px] uppercase tracking-wider ${selectedArticle.selectedVariantIndex === idx ? 'text-indigo-300' : 'text-slate-500'}`}>{variant.title}</h4>
+                                   {selectedArticle.selectedVariantIndex === idx && <Check size={18} className="text-indigo-400" />}
+                                </div>
+                                <p className={`text-sm leading-relaxed ${selectedArticle.selectedVariantIndex === idx ? 'text-white' : 'text-slate-400'} line-clamp-3 group-hover:line-clamp-none transition-all`}>
+                                   {variant.content}
+                                </p>
+                                {selectedArticle.selectedVariantIndex === idx && <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>}
+                             </button>
+                           ))
+                        ) : (
+                          <div className="p-6 bg-slate-900/40 border border-dashed border-slate-700 rounded-3xl text-center">
+                             <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">ИИ-варианты не создавались (Отладка)</p>
+                          </div>
+                        )}
                      </div>
 
                      {/* Visual Preview */}
@@ -737,7 +788,7 @@ const App: React.FC = () => {
                       onClick={handleDeploy}
                       className="w-full mt-auto py-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 disabled:text-slate-700 disabled:cursor-not-allowed rounded-[32px] font-black shadow-2xl shadow-indigo-600/30 transition-all flex items-center justify-center gap-3 text-white uppercase tracking-widest text-xs"
                     >
-                       <Send size={20} /> Опубликовать выбранный
+                       <Send size={20} /> Опубликовать
                     </button>
                   ) : (
                     <button 
