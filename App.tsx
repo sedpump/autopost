@@ -21,7 +21,9 @@ import {
   Globe,
   Send,
   Hash,
-  Image as ImageIcon
+  Image as ImageIcon,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -50,15 +52,15 @@ const App: React.FC = () => {
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [deployResults, setDeployResults] = useState<any[] | null>(null);
   
-  // Account Form State
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
   const [newAccName, setNewAccName] = useState('');
   const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '' });
 
-  // Auth Form State
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -141,10 +143,7 @@ const App: React.FC = () => {
   const handleApprove = async (article: Article) => {
     setIsProcessing(true);
     try {
-      // 1. Рерайт текста (основная задача)
       const rewritten = await rewriteArticle(article.originalText);
-      
-      // 2. Генерация картинки (второстепенная, может упасть из-за лимитов)
       let imageUrl = '';
       try {
         const keywords = await extractKeyConcepts(article.originalText);
@@ -152,7 +151,7 @@ const App: React.FC = () => {
           imageUrl = await generateImageForArticle(keywords.join(", "));
         }
       } catch (imgError) {
-        console.warn("Image generation failed, continuing with text only.", imgError);
+        console.warn("Image generation failed", imgError);
       }
       
       const updatedArticle: Article = {
@@ -163,6 +162,7 @@ const App: React.FC = () => {
       };
 
       setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
+      setDeployResults(null);
       setSelectedArticle(updatedArticle);
     } catch (error: any) {
       alert("AI Error: " + error.message);
@@ -171,12 +171,25 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeploy = async () => {
+    if (!selectedArticle) return;
+    setIsDeploying(true);
+    try {
+      const result = await postToPlatforms(selectedArticle);
+      setDeployResults(result.results);
+    } catch (e: any) {
+      alert("Deployment failed: " + e.message);
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="max-w-md w-full glass p-10 rounded-[40px] border border-white/5 shadow-2xl animate-in fade-in zoom-in duration-500">
+        <div className="max-w-md w-full glass p-10 rounded-[40px] border border-white/5 shadow-2xl">
           <div className="flex flex-col items-center mb-10">
-            <div className="bg-indigo-600 p-4 rounded-3xl shadow-lg shadow-indigo-600/30 mb-6">
+            <div className="bg-indigo-600 p-4 rounded-3xl mb-6 shadow-lg shadow-indigo-600/30">
               <Lock className="text-white w-8 h-8" />
             </div>
             <h1 className="text-3xl font-black text-white mb-2">OmniPost AI</h1>
@@ -188,7 +201,7 @@ const App: React.FC = () => {
               placeholder="Username" 
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl px-6 py-4 focus:border-indigo-500 focus:outline-none text-white"
+              className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl px-6 py-4 focus:border-indigo-500 outline-none text-white"
             />
             <button 
               disabled={authLoading}
@@ -203,7 +216,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-200">
+    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-200 font-inter">
       <aside className="w-72 glass border-r border-slate-800 flex flex-col p-6 space-y-8 z-20">
         <div className="flex items-center space-x-3 px-2">
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-500/20"><Radio className="w-6 h-6 text-white" /></div>
@@ -238,7 +251,7 @@ const App: React.FC = () => {
           <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
           <div className="flex items-center gap-4">
             {isFetching && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
-            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20">SYNC NOW</button>
+            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 tracking-widest">SYNC NOW</button>
           </div>
         </header>
 
@@ -252,12 +265,12 @@ const App: React.FC = () => {
                 </div>
               )}
               {articles.map(article => (
-                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full animate-in fade-in slide-in-from-bottom-4">
+                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 transition-all hover:border-indigo-500/30">
                   <div className="flex justify-between items-center mb-6">
-                    <span className="text-[10px] font-black text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg">{article.source}</span>
+                    <span className="text-[10px] font-black text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg border border-indigo-500/10">{article.source}</span>
                   </div>
                   <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1 line-clamp-6">{article.originalText}</p>
-                  <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2">
+                  <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/10">
                     <Zap size={16} /> Process with AI
                   </button>
                 </div>
@@ -353,13 +366,13 @@ const App: React.FC = () => {
 
               {showAddAccount && (
                 <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
-                  <div className="glass w-full max-w-md p-10 rounded-[40px] border border-white/5">
+                  <div className="glass w-full max-w-md p-10 rounded-[40px] border border-white/5 shadow-2xl animate-in zoom-in duration-300">
                     <h3 className="text-2xl font-bold text-white mb-8">Connect New Platform</h3>
                     <div className="space-y-4">
                       <select 
                         value={newAccPlatform}
                         onChange={e => setNewAccPlatform(e.target.value as Platform)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                       >
                         {Object.values(Platform).map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
@@ -367,7 +380,7 @@ const App: React.FC = () => {
                         placeholder="Friendly Name (e.g. My Telegram Channel)"
                         value={newAccName}
                         onChange={e => setNewAccName(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                       />
                       {newAccPlatform === Platform.TELEGRAM && (
                         <>
@@ -375,19 +388,19 @@ const App: React.FC = () => {
                             placeholder="Bot Token (from @BotFather)"
                             value={newAccCreds.botToken}
                             onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                           />
                           <input 
                             placeholder="Chat/Channel ID (e.g. @mychannel)"
                             value={newAccCreds.chatId}
                             onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                           />
                         </>
                       )}
                       <div className="flex gap-4 mt-8">
                         <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Cancel</button>
-                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all">Save Account</button>
+                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Save Account</button>
                       </div>
                     </div>
                   </div>
@@ -398,58 +411,105 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* AI Processing Modal */}
-      {isProcessing && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
+      {/* AI Processing Overlay */}
+      {(isProcessing || isDeploying) && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
            <div className="relative">
               <div className="w-24 h-24 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin"></div>
-              <Rocket className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-500" />
+              {isDeploying ? <Rocket className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-500" /> : <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-500 animate-pulse" />}
            </div>
-           <p className="mt-8 text-indigo-400 font-bold tracking-widest text-sm">GEMINI AI IS ANALYZING CONTENT</p>
+           <p className="mt-8 text-indigo-400 font-bold tracking-widest text-sm uppercase">
+             {isDeploying ? "Deploying Content to Targets..." : "Gemini AI is Analyzing Content..."}
+           </p>
         </div>
       )}
 
-      {/* Review Modal */}
-      {selectedArticle && (
+      {/* Deployment Review Modal */}
+      {selectedArticle && !isDeploying && (
          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl">
-            <div className="glass w-full max-w-4xl max-h-[85vh] rounded-[40px] border border-white/5 overflow-hidden flex shadow-2xl animate-in slide-in-from-bottom-8 duration-500">
+            <div className="glass w-full max-w-5xl max-h-[90vh] rounded-[40px] border border-white/5 overflow-hidden flex shadow-2xl animate-in slide-in-from-bottom-8 duration-500">
                <div className="flex-1 p-12 overflow-y-auto border-r border-slate-800">
-                  <h3 className="text-2xl font-black mb-10 text-white">Review Generated Content</h3>
+                  <div className="flex justify-between items-center mb-10">
+                    <h3 className="text-2xl font-black text-white">Review Generated Content</h3>
+                    <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-widest">
+                      <Zap size={14} /> AI Enhanced
+                    </div>
+                  </div>
+                  
                   {selectedArticle.generatedImageUrl ? (
-                    <img src={selectedArticle.generatedImageUrl} className="w-full h-64 object-cover rounded-3xl mb-8 border border-slate-800" />
+                    <div className="relative group mb-8">
+                      <img src={selectedArticle.generatedImageUrl} className="w-full h-80 object-cover rounded-3xl border border-slate-800 shadow-2xl" />
+                    </div>
                   ) : (
                     <div className="w-full h-48 bg-slate-900 rounded-3xl mb-8 flex flex-col items-center justify-center border border-dashed border-slate-800 text-slate-500">
                        <ImageIcon size={32} className="mb-2 opacity-20" />
-                       <span className="text-xs uppercase tracking-widest font-bold">Image not generated</span>
+                       <span className="text-xs uppercase tracking-widest font-bold">Image generation skipped</span>
                     </div>
                   )}
-                  <div className="prose prose-invert bg-slate-900/50 p-8 rounded-3xl border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-wrap">
+                  <div className="bg-slate-900/50 p-8 rounded-3xl border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-wrap font-medium">
                      {selectedArticle.rewrittenText}
                   </div>
                </div>
-               <div className="w-80 p-10 bg-slate-950/50 flex flex-col">
-                  <button onClick={() => setSelectedArticle(null)} className="self-end p-2 hover:bg-slate-800 rounded-full mb-10"><XCircle size={24} className="text-slate-500"/></button>
-                  <div className="flex-1 space-y-4">
-                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Destinations ({accounts.length})</p>
-                     {accounts.map(acc => (
-                        <div key={acc.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
-                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                           <span className="text-xs font-bold text-white">{acc.name}</span>
+               
+               <div className="w-96 p-10 bg-slate-950/50 flex flex-col">
+                  <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="self-end p-2 hover:bg-slate-800 rounded-full mb-10 transition-colors"><XCircle size={24} className="text-slate-500"/></button>
+                  
+                  <div className="flex-1 space-y-6 overflow-y-auto pr-2">
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Target Channels</p>
+                     
+                     {deployResults ? (
+                        <div className="space-y-3">
+                           {deployResults.map((res: any, idx: number) => (
+                              <div key={idx} className={`p-4 rounded-2xl border flex items-center justify-between animate-in slide-in-from-right-4 duration-300 delay-[${idx*50}ms] ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                                 <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-xl ${res.status === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                                       {res.status === 'success' ? <CheckCircle size={16}/> : <AlertCircle size={16}/>}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                       <p className="text-xs font-bold text-white truncate">{res.name}</p>
+                                       <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status}</p>
+                                    </div>
+                                 </div>
+                              </div>
+                           ))}
                         </div>
-                     ))}
-                     {accounts.length === 0 && <p className="text-xs text-red-400 italic">No accounts connected!</p>}
+                     ) : (
+                        <div className="space-y-3">
+                           {accounts.map(acc => (
+                              <div key={acc.id} className="flex items-center gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                                 <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-lg shadow-indigo-500/50"></div>
+                                 <div>
+                                    <p className="text-xs font-bold text-white">{acc.name}</p>
+                                    <p className="text-[9px] text-slate-500 uppercase font-bold">{acc.platform}</p>
+                                 </div>
+                              </div>
+                           ))}
+                           {accounts.length === 0 && (
+                             <div className="p-6 bg-red-500/5 border border-red-500/10 rounded-3xl text-center">
+                               <AlertCircle size={24} className="mx-auto mb-3 text-red-400 opacity-50" />
+                               <p className="text-xs text-red-400 font-bold">No accounts connected!</p>
+                             </div>
+                           )}
+                        </div>
+                     )}
                   </div>
-                  <button 
-                    disabled={accounts.length === 0}
-                    onClick={async () => {
-                        await postToPlatforms(selectedArticle);
-                        setSelectedArticle(null);
-                        alert("Successfully published across all platforms!");
-                    }}
-                    className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-2xl font-bold shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 text-white"
-                  >
-                     <Send size={20} /> Deploy Post
-                  </button>
+
+                  {!deployResults ? (
+                    <button 
+                      disabled={accounts.length === 0 || isDeploying}
+                      onClick={handleDeploy}
+                      className="w-full mt-8 py-5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-2xl font-bold shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 text-white"
+                    >
+                       <Send size={20} /> Deploy Post
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }}
+                      className="w-full mt-8 py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl font-bold transition-all"
+                    >
+                       Finish & Close
+                    </button>
+                  )}
                </div>
             </div>
          </div>

@@ -1,7 +1,8 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
+import { Telegraf } from 'telegraf';
+import { Buffer } from 'buffer';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || '',
@@ -17,49 +18,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { text, image, articleId } = req.body;
 
-  // 1. Получаем все активные аккаунты пользователя из БД
+  // Получаем активные интеграции пользователя
   const { data: accounts, error: accError } = await supabase
     .from('target_accounts')
     .select('*')
     .eq('user_id', userId)
     .eq('is_active', true);
 
-  if (accError || !accounts) return res.status(500).json({ error: 'Failed to fetch target accounts' });
+  if (accError || !accounts) return res.status(500).json({ error: 'Failed to fetch accounts' });
 
   const results = [];
 
-  // 2. Рассылаем по каждой платформе
   for (const account of accounts) {
     let status = 'failed';
-    let link = '';
+    let errorMessage = '';
     
     try {
       if (account.platform === 'Telegram') {
         const { botToken, chatId } = account.credentials;
-        const msg = image ? `📸 [Image Content]\n\n${text}` : text;
-        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          chat_id: chatId,
-          text: msg
-        });
+        const bot = new Telegraf(botToken);
+
+        if (image && image.startsWith('data:image')) {
+          const base64Data = image.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          
+          // Caption limit is 1024 chars for photos
+          if (text.length <= 1024) {
+            await bot.telegram.sendPhoto(chatId, { source: buffer }, { caption: text });
+          } else {
+            await bot.telegram.sendPhoto(chatId, { source: buffer });
+            await bot.telegram.sendMessage(chatId, text);
+          }
+        } else {
+          await bot.telegram.sendMessage(chatId, text);
+        }
         status = 'success';
-      } 
-      // Тут будут блоки else if для VK, Dzen и т.д.
-      else {
-        // Симуляция для остальных
-        status = 'simulated';
+      } else {
+        status = 'pending_integration';
+        errorMessage = `Platform ${account.platform} integration in progress`;
       }
 
-      // 3. Записываем в лог
+      // Log to history
       await supabase.from('posts_history').insert([{
         user_id: userId,
         article_id: articleId,
         platform: account.platform,
         status: status,
-        external_link: link
+        error_log: errorMessage
       }]);
 
-      results.push({ platform: account.platform, name: account.name, status });
+      results.push({ platform: account.platform, name: account.name, status, error: errorMessage });
     } catch (e: any) {
+      console.error(`Publish error [${account.platform}]:`, e);
       results.push({ platform: account.platform, name: account.name, status: 'failed', error: e.message });
     }
   }
