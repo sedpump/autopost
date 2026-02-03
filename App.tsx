@@ -47,7 +47,6 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [postingProgress, setPostingProgress] = useState<PostingStatus[]>([]);
-  const [showPayload, setShowPayload] = useState(false);
   
   const [backendUrl, setBackendUrl] = useState(localStorage.getItem('backend_url') || '');
   const [apiToken, setApiToken] = useState(localStorage.getItem('api_token') || '');
@@ -180,11 +179,11 @@ const App: React.FC = () => {
             <div className="max-w-2xl mx-auto glass p-12 rounded-[40px] border border-slate-800 space-y-8">
                 <h3 className="text-xl font-bold flex items-center gap-3"><Server className="text-indigo-500" /> API Configuration</h3>
                 <div className="space-y-4">
-                    <p className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                        To enable real Telegram integration, go to your <b>Vercel Project Settings &gt; Environment Variables</b> and add:<br/><br/>
+                    <div className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                        {"To enable real Telegram integration, go to your "}<b>Vercel Project Settings → Environment Variables</b>{" and add:"}<br/><br/>
                         <code>TELEGRAM_BOT_TOKEN</code><br/>
                         <code>TELEGRAM_CHANNEL_ID</code>
-                    </p>
+                    </div>
                     <div>
                         <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Internal Admin Token</label>
                         <input 
@@ -199,7 +198,6 @@ const App: React.FC = () => {
             </div>
           )}
           
-          {/* Other tabs placeholders */}
           {(activeTab === 'dashboard' || activeTab === 'sources' || activeTab === 'accounts') && (
             <div className="text-center py-20 opacity-30">
                 <p className="text-xl font-bold">Module under construction</p>
