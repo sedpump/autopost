@@ -27,7 +27,9 @@ import {
   Check,
   Layers,
   Sparkles,
-  Info
+  Info,
+  HelpCircle,
+  ShieldAlert
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -187,7 +189,8 @@ const App: React.FC = () => {
       try {
         const keywords = await extractKeyConcepts(article.originalText);
         if (keywords.length > 0) {
-          imageUrl = await generateImageForArticle(keywords.join(", "));
+          // keywords[0] теперь содержит полное описание сцены
+          imageUrl = await generateImageForArticle(keywords[0]);
         }
       } catch (imgError) {
         console.warn("Ошибка генерации изображения", imgError);
@@ -478,15 +481,24 @@ const App: React.FC = () => {
                             onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})}
                             className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                           />
-                          <input 
-                            placeholder="Owner ID (напр. -12345678 для группы)"
-                            value={newAccCreds.ownerId}
-                            onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
-                          />
-                          <div className="flex gap-2 items-start p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
-                             <Info size={14} className="text-indigo-400 mt-0.5" />
-                             <p className="text-[10px] text-slate-500 leading-tight">Для сообществ ID должен начинаться с минуса.</p>
+                          <div className="space-y-2">
+                             <input 
+                               placeholder="Цифровой Owner ID (напр. -12345678)"
+                               value={newAccCreds.ownerId}
+                               onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})}
+                               className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
+                             />
+                             <div className="flex flex-col gap-2 p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
+                                <div className="flex items-start gap-2">
+                                   <ShieldAlert size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                                   <div className="text-[10px] text-slate-400 leading-tight">
+                                      <p className="font-bold text-amber-500 mb-1 uppercase">Важно для групп:</p>
+                                      Если ID начинается с <b>минуса</b>, ваш токен ДОЛЖЕН принадлежать <b>администратору</b> этой группы.
+                                      <br/><br/>
+                                      Убедитесь, что в настройках приложения ВК разрешен доступ к <b>wall</b> и <b>offline</b>.
+                                   </div>
+                                </div>
+                             </div>
                           </div>
                         </>
                       )}
@@ -616,7 +628,7 @@ const App: React.FC = () => {
                                           </div>
                                           <div className="overflow-hidden">
                                              <p className="text-sm font-black text-white truncate">{res.name}</p>
-                                             <p className={`text-[10px] uppercase font-black tracking-widest ${res.status === 'success' ? 'Успешно' : 'Ошибка'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
+                                             <p className={`text-[10px] uppercase font-black tracking-widest ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
                                           </div>
                                        </div>
                                     </div>

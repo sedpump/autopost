@@ -11,19 +11,40 @@ const supabase = createClient(
 );
 
 async function publishToVK(accessToken: string, ownerId: string, message: string) {
-  // Для простоты здесь только текстовый пост. 
-  // Загрузка фото в ВК требует 3 этапа: получение сервера -> POST файла -> сохранение фото.
+  // Очищаем ID от буквенных префиксов, сохраняя минус если он есть
+  const rawId = ownerId.trim().toLowerCase()
+    .replace('id', '')
+    .replace('club', '')
+    .replace('public', '');
+  
+  const numericOwnerId = parseInt(rawId, 10);
+
+  if (isNaN(numericOwnerId)) {
+    throw new Error('Owner ID должен быть числом (например, 12345 или -12345).');
+  }
+
   const url = `https://api.vk.com/method/wall.post`;
+  
+  // Если numericOwnerId отрицательный — это группа. 
+  // Для групп ОБЯЗАТЕЛЬНО нужен from_group: 1, иначе будет ошибка доступа.
+  const isGroup = numericOwnerId < 0;
+
   const response = await axios.post(url, null, {
     params: {
       access_token: accessToken,
-      owner_id: ownerId,
+      owner_id: numericOwnerId,
+      from_group: isGroup ? 1 : 0, // Постить от имени сообщества
       message: message,
       v: '5.131'
     }
   });
+  
   if (response.data.error) {
-    throw new Error(response.data.error.error_msg);
+    const err = response.data.error;
+    if (err.error_code === 15) {
+      throw new Error('Доступ закрыт. Убедитесь, что у токена есть права на стену и включен параметр "от имени сообщества".');
+    }
+    throw new Error(`Ошибка ВК: ${err.error_msg} (Код: ${err.error_code})`);
   }
   return response.data;
 }
@@ -77,14 +98,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         status = 'success';
       } else if (account.platform === 'VK') {
         const token = account.credentials.accessToken?.trim();
-        const ownerId = account.credentials.ownerId?.trim();
+        const ownerId = account.credentials.ownerId?.trim() || '';
+        
         if (!token || !ownerId) throw new Error('VK Access Token или Owner ID отсутствуют');
         
         await publishToVK(token, ownerId, text);
         status = 'success';
       } else {
         status = 'pending_integration';
-        errorMessage = `Интеграция с платформой ${account.platform} в разработке`;
+        errorMessage = `Интеграция с ${account.platform} пока в очереди`;
       }
 
       await supabase.from('posts_history').insert([{

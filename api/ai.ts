@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'keywords') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Выдели 3 ключевых визуальных образа (на английском языке) для генерации качественной картинки к этому тексту. Ответ верни в формате JSON массива строк. Текст: ${text}`,
+        contents: `Проанализируй текст и создай ОДНО подробное описание (на английском языке) для генерации качественной картинки. Описание должно четко отражать суть и объекты текста. Текст: ${text}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -58,7 +58,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             properties: {
               keywords: { 
                 type: Type.ARRAY, 
-                items: { type: Type.STRING } 
+                items: { type: Type.STRING },
+                description: "Массив из одной строки с полным описанием сцены"
               }
             },
             required: ["keywords"]
@@ -73,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const response = await ai.models.generateContent({
           model: 'gemini-3-pro-image-preview',
           contents: { 
-            parts: [{ text: `A high-end, professional commercial 3D render illustration for a social media post about: ${prompt}. Cinematic lighting, minimalist style, sharp focus, 8k resolution, clean modern aesthetic.` }] 
+            parts: [{ text: `Professional commercial visual concept, clean aesthetic, high-end photography/3D render: ${prompt}. Cinematic lighting, 8k, sharp details.` }] 
           },
           config: { 
             imageConfig: { 
@@ -91,10 +92,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
         }
-        throw new Error("Модель не вернула данные изображения.");
+        throw new Error("Модель не вернула изображение.");
       } catch (innerError: any) {
         console.error("Pro Image Generation Error:", innerError);
-        return res.status(500).json({ error: "Ошибка генерации Pro Image: " + innerError.message });
+        return res.status(500).json({ error: "Ошибка генерации: " + innerError.message });
       }
     }
 
