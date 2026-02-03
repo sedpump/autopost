@@ -26,10 +26,21 @@ export interface Source {
 
 export interface Account {
   id: string;
+  userId: string;
   platform: Platform;
-  username: string;
-  status: 'connected' | 'expired' | 'error';
-  lastPostDate?: string;
+  name: string;
+  credentials: {
+    botToken?: string;
+    chatId?: string;
+    [key: string]: any;
+  };
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface RewriteVariant {
+  title: string;
+  content: string;
 }
 
 export interface Article {
@@ -40,6 +51,8 @@ export interface Article {
   timestamp: string;
   status: 'pending' | 'processing' | 'approved' | 'rejected' | 'posted';
   rewrittenText?: string;
+  rewrittenVariants?: RewriteVariant[];
+  selectedVariantIndex?: number;
   generatedImageUrl?: string;
   platforms?: Platform[];
 }

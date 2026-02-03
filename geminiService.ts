@@ -1,5 +1,7 @@
 
-export const rewriteArticle = async (text: string): Promise<string> => {
+import { RewriteVariant } from './types';
+
+export const rewriteArticle = async (text: string): Promise<RewriteVariant[]> => {
   const response = await fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -7,7 +9,7 @@ export const rewriteArticle = async (text: string): Promise<string> => {
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error);
-  return data.result;
+  return data.variants;
 };
 
 export const generateImageForArticle = async (prompt: string): Promise<string> => {

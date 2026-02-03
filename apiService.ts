@@ -53,7 +53,8 @@ export const deleteSource = async (id: string) => {
 };
 
 // Работа с аккаунтами (Интеграции)
-export const fetchAccounts = async (): Promise<any[]> => {
+// Updated return type to use Account interface from types.ts
+export const fetchAccounts = async (): Promise<Account[]> => {
   const response = await fetch('/api/accounts', {
     headers: getAuthHeaders()
   });
