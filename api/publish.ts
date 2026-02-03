@@ -50,7 +50,7 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
   }
 }
 
-async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string) {
+async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string, previewOnly: boolean = false) {
   const token = accessToken.trim();
   const rawGroupId = ownerId.trim().replace(/\D/g, '');
   const targetId = `-${rawGroupId}`;
@@ -62,37 +62,45 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     params.append('v', '5.131');
     
     const fullUrl = `https://api.vk.com/method/${method}`;
-    
-    // ЭТО ТО, ЧТО НУЖНО ПОДДЕРЖКЕ (выводится в Logs Vercel)
-    console.log(`--- [VK COMMAND START] ---`);
-    console.log(`METHOD: POST`);
-    console.log(`URL: ${fullUrl}`);
-    console.log(`PARAMS:`, params.toString());
-    console.log(`--- [VK COMMAND END] ---`);
-    
+    const rawRequestString = `POST ${fullUrl}\nContent-Type: application/x-www-form-urlencoded\n\n${params.toString()}`;
+
+    // Если это режим превью — просто возвращаем строку запроса как ошибку (для перехвата)
+    if (previewOnly && method === 'wall.post') {
+      const err = new Error("PREVIEW_MODE") as any;
+      err.debugData = { request: rawRequestString, response: "Ожидание отправки..." };
+      throw err;
+    }
+
     try {
       const response = await axios.post(fullUrl, params, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 25000
       });
       
-      console.log(`[VK RESPONSE] Full JSON:`, JSON.stringify(response.data));
-
       if (response.data.error) {
-        const { error_code, error_msg } = response.data.error;
-        throw new Error(`VK Error ${error_code}: ${error_msg}`);
+        const err = new Error(response.data.error.error_msg) as any;
+        err.debugData = {
+          request: rawRequestString,
+          response: JSON.stringify(response.data, null, 2)
+        };
+        throw err;
       }
       return response.data.response;
     } catch (err: any) {
-      const errDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-      console.error(`[VK CRITICAL ERROR]:`, errDetail);
-      throw new Error(`ВК: ${errDetail}`);
+      if (err.message === "PREVIEW_MODE") throw err;
+      if (!err.debugData) {
+        err.debugData = {
+          request: rawRequestString,
+          response: err.response?.data ? JSON.stringify(err.response.data, null, 2) : err.message
+        };
+      }
+      throw err;
     }
   };
 
   try {
     let attachments = '';
-    if (image) {
+    if (image && !previewOnly) {
       const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
       const buffer = await getImageBuffer(image);
       if (buffer) {
@@ -109,15 +117,18 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       }
     }
 
-    // Финальный вызов публикации
-    await vkPost('wall.post', {
+    const postData: any = {
       owner_id: targetId,
       from_group: 1,
-      message: text,
-      attachments: attachments
-    });
+      message: text
+    };
+    if (attachments) postData.attachments = attachments;
+
+    await vkPost('wall.post', postData);
   } catch (e: any) {
-    throw new Error(e.message || 'Ошибка ВК');
+    const finalErr = new Error(e.message) as any;
+    finalErr.debugData = e.debugData;
+    throw finalErr;
   }
 }
 
@@ -126,6 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const userId = req.headers.authorization?.replace('Bearer ', '');
   if (!userId) return res.status(401).send('Unauthorized');
 
+  const isPreview = req.query.preview === 'true';
   const { text, image } = req.body;
   const { data: accounts } = await supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
 
@@ -136,14 +148,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const p = acc.platform.toUpperCase();
       if (p === 'VK' || p === 'ВК') {
-        await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image);
-        results.push({ name: acc.name, status: 'success' });
+        await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image, isPreview);
+        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', debugData: isPreview ? { request: '...', response: '...' } : undefined });
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
-        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
-        results.push({ name: acc.name, status: 'success' });
+        if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
+        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success' });
       }
     } catch (e: any) {
-      results.push({ name: acc.name, status: 'failed', error: e.message });
+      results.push({ 
+        name: acc.name, 
+        status: 'failed', 
+        error: e.message === "PREVIEW_MODE" ? "Режим предпросмотра" : e.message,
+        debugData: e.debugData 
+      });
     }
   }
   res.status(200).json({ results });

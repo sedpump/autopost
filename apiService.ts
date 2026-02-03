@@ -84,8 +84,8 @@ export const deleteAccount = async (id: string) => {
   });
 };
 
-export const postToPlatforms = async (article: Article) => {
-  const response = await fetch('/api/publish', {
+export const postToPlatforms = async (article: Article, preview: boolean = false) => {
+  const response = await fetch(`/api/publish${preview ? '?preview=true' : ''}`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({
@@ -94,6 +94,11 @@ export const postToPlatforms = async (article: Article) => {
       image: article.generatedImageUrl
     })
   });
-  if (!response.ok) throw new Error('Publishing failed');
-  return await response.json();
+  
+  // Даже если ошибка, пытаемся распарсить JSON, чтобы вытащить debugData
+  const data = await response.json();
+  if (!response.ok && !data.results) {
+    throw new Error(data.error || 'Publishing failed');
+  }
+  return data;
 };

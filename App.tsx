@@ -38,7 +38,10 @@ import {
   ZapOff,
   Flame,
   Layout,
-  Smartphone
+  Smartphone,
+  Copy,
+  Terminal,
+  Eye
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -82,6 +85,8 @@ const App: React.FC = () => {
 
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+
+  const [showDebugModal, setShowDebugModal] = useState<any>(null);
 
   useEffect(() => {
     const checkApiKey = async () => {
@@ -288,21 +293,34 @@ const App: React.FC = () => {
     });
   };
 
-  const handleDeploy = async () => {
+  const handleDeploy = async (preview: boolean = false) => {
     if (!selectedArticle) return;
     setIsDeploying(true);
-    setDeployResults(null);
+    if (!preview) setDeployResults(null);
     try {
       const result = await postToPlatforms({ 
         ...selectedArticle, 
         rewrittenText: editableText 
-      });
-      setDeployResults(result.results);
+      }, preview);
+      
+      if (preview) {
+        const vkRes = result.results.find((r: any) => r.debugData);
+        if (vkRes) setShowDebugModal(vkRes.debugData);
+        else alert("Превью доступно только для каналов ВК");
+      } else {
+        setDeployResults(result.results);
+      }
     } catch (e: any) {
       alert("Сетевая ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
     }
+  };
+
+  const copyDebugToClipboard = (data: any) => {
+    const text = `ЗАПРОС:\n${data.request}\n\nОТВЕТ:\n${data.response}`;
+    navigator.clipboard.writeText(text);
+    alert("Скопировано! Отправьте этот текст в поддержку.");
   };
 
   if (!user) {
@@ -534,7 +552,14 @@ const App: React.FC = () => {
                <div className="flex-1 p-14 overflow-y-auto border-r border-slate-800/50 flex flex-col">
                   <div className="flex justify-between items-center mb-12">
                     <h3 className="text-3xl font-black text-white">Студия контента</h3>
-                    <div className="flex gap-2">
+                    <div className="flex gap-4">
+                       <button 
+                          onClick={() => handleDeploy(true)} 
+                          className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-2xl transition-all flex items-center gap-2 font-bold"
+                          title="Посмотреть технический запрос"
+                       >
+                         <Eye size={18}/> Технический предпросмотр
+                       </button>
                        <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать">
                          <Sparkles size={20}/>
                        </button>
@@ -575,7 +600,18 @@ const App: React.FC = () => {
                      {deployResults ? deployResults.map((res: any, idx: number) => (
                         <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 transition-all animate-in fade-in slide-in-from-right-4 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                            <div className="flex justify-between items-center">
-                             <p className="text-sm font-black text-white">{res.name}</p>
+                             <div className="flex items-center gap-2">
+                                <p className="text-sm font-black text-white">{res.name}</p>
+                                {res.debugData && (
+                                   <button 
+                                      onClick={() => setShowDebugModal(res.debugData)}
+                                      className="p-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/40 transition-all"
+                                      title="Данные для поддержки"
+                                   >
+                                      <Bug size={12}/>
+                                   </button>
+                                )}
+                             </div>
                              {res.status === 'success' ? <CheckCircle size={16} className="text-emerald-500"/> : <ShieldAlert size={16} className="text-red-500"/>}
                            </div>
                            <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
@@ -595,13 +631,59 @@ const App: React.FC = () => {
                      ))}
                   </div>
                   {!deployResults ? (
-                    <button onClick={handleDeploy} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 transition-all active:scale-95">Опубликовать во всех</button>
+                    <button onClick={() => handleDeploy(false)} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 transition-all active:scale-95">Опубликовать во всех</button>
                   ) : (
                     <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Готово</button>
                   )}
                </div>
             </div>
          </div>
+      )}
+
+      {showDebugModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-2xl flex items-center justify-center p-6">
+          <div className="glass w-full max-w-4xl max-h-[85vh] p-10 rounded-[40px] border border-white/10 flex flex-col shadow-2xl">
+            <div className="flex justify-between items-center mb-8">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl"><Terminal size={24}/></div>
+                <div>
+                   <h3 className="text-2xl font-black text-white">Боевой запрос для поддержки</h3>
+                   <p className="text-slate-500 text-xs">Скопируйте эти данные и отправьте в ВК</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDebugModal(null)} className="p-2 hover:bg-white/5 rounded-full transition-all text-slate-500 hover:text-white"><XCircle size={32}/></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto space-y-6 pr-4 custom-scrollbar">
+               <div className="space-y-3">
+                 <div className="flex justify-between items-center px-2">
+                    <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">HTTP Запрос</label>
+                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.request)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 transition-all"><Copy size={12}/> Копировать запрос</button>
+                 </div>
+                 <pre className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-[11px] text-indigo-300 font-mono whitespace-pre-wrap break-all leading-relaxed">
+                   {showDebugModal.request}
+                 </pre>
+               </div>
+
+               <div className="space-y-3">
+                 <div className="flex justify-between items-center px-2">
+                    <label className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Ответ API</label>
+                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.response)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 transition-all"><Copy size={12}/> Копировать ответ</button>
+                 </div>
+                 <pre className="bg-slate-950 border border-emerald-500/20 p-6 rounded-3xl text-[11px] text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed">
+                   {showDebugModal.response}
+                 </pre>
+               </div>
+            </div>
+
+            <button 
+              onClick={() => copyDebugToClipboard(showDebugModal)}
+              className="w-full mt-10 py-5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-[32px] text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/20"
+            >
+              <Copy size={18}/> Копировать всё для техподдержки
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
