@@ -55,6 +55,7 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
   const rawGroupId = ownerId.trim().replace(/\D/g, '');
   const targetId = `-${rawGroupId}`;
   
+  // Внутренняя функция для отправки запроса
   const vkPost = async (method: string, data: any) => {
     const params = new URLSearchParams();
     for (const key in data) params.append(key, data[key]);
@@ -64,10 +65,13 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     const fullUrl = `https://api.vk.com/method/${method}`;
     const rawRequestString = `POST ${fullUrl}\nContent-Type: application/x-www-form-urlencoded\n\n${params.toString()}`;
 
-    // Если это режим превью — просто возвращаем строку запроса как ошибку (для перехвата)
+    // Если мы в режиме превью — останавливаемся перед реальным wall.post
     if (previewOnly && method === 'wall.post') {
       const err = new Error("PREVIEW_MODE") as any;
-      err.debugData = { request: rawRequestString, response: "Ожидание отправки..." };
+      err.debugData = { 
+        request: rawRequestString, 
+        response: "--- РЕЖИМ ПРЕДПРОСМОТРА: ЗАПРОС НЕ ОТПРАВЛЕН ---" 
+      };
       throw err;
     }
 
@@ -100,6 +104,8 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
 
   try {
     let attachments = '';
+    
+    // Если есть картинка и это РЕАЛЬНАЯ публикация — загружаем
     if (image && !previewOnly) {
       const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
       const buffer = await getImageBuffer(image);
@@ -115,17 +121,25 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
         });
         if (saved?.length) attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
       }
+    } else if (image && previewOnly) {
+      // Имитируем наличие вложения для превью запроса
+      attachments = `photoUSERID_PHOTOID (будет получено при публикации)`;
     }
 
     const postData: any = {
       owner_id: targetId,
-      from_group: 1,
+      from_group: '1', // Всегда строка для надежности
       message: text
     };
-    if (attachments) postData.attachments = attachments;
+    
+    // Передаем attachments только если они есть
+    if (attachments) {
+      postData.attachments = attachments;
+    }
 
     await vkPost('wall.post', postData);
   } catch (e: any) {
+    // Пробрасываем ошибку с данными для дебага
     const finalErr = new Error(e.message) as any;
     finalErr.debugData = e.debugData;
     throw finalErr;
@@ -149,10 +163,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const p = acc.platform.toUpperCase();
       if (p === 'VK' || p === 'ВК') {
         await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image, isPreview);
-        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', debugData: isPreview ? { request: '...', response: '...' } : undefined });
+        // Если дошли сюда и это не превью — успех
+        results.push({ name: acc.name, status: 'success' });
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
         if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
-        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success' });
+        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью (не отправлялось)' : undefined });
       }
     } catch (e: any) {
       results.push({ 

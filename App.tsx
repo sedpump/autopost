@@ -304,14 +304,18 @@ const App: React.FC = () => {
       }, preview);
       
       if (preview) {
-        const vkRes = result.results.find((r: any) => r.debugData);
-        if (vkRes) setShowDebugModal(vkRes.debugData);
-        else alert("Превью доступно только для каналов ВК");
+        // Ищем любой результат с debugData (обычно это ВК)
+        const debugRes = result.results.find((r: any) => r.debugData);
+        if (debugRes) {
+          setShowDebugModal(debugRes.debugData);
+        } else {
+          alert("Для выбранных каналов технический предпросмотр недоступен (пока только для ВК)");
+        }
       } else {
         setDeployResults(result.results);
       }
     } catch (e: any) {
-      alert("Сетевая ошибка: " + e.message);
+      alert("Ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
     }
