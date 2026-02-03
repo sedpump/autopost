@@ -17,7 +17,10 @@ import {
   Trash2,
   Server,
   Rocket,
-  Zap
+  Zap,
+  Download,
+  Upload,
+  Database
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -36,9 +39,13 @@ const SidebarItem: React.FC<{ icon: React.ReactNode; label: string; active: bool
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'inbox' | 'sources' | 'accounts' | 'settings'>('inbox');
-  const [articles, setArticles] = useState<Article[]>([]);
   
-  // Управление источниками
+  // Лента постов (Inbound Feed) теперь тоже кэшируется
+  const [articles, setArticles] = useState<Article[]>(() => {
+    const saved = localStorage.getItem('omni_articles');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [sources, setSources] = useState<Source[]>(() => {
     const saved = localStorage.getItem('omni_sources');
     return saved ? JSON.parse(saved) : [
@@ -52,20 +59,28 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [postingProgress, setPostingProgress] = useState<PostingStatus[]>([]);
-  
-  const [apiToken] = useState(localStorage.getItem('api_token') || '');
 
+  // Сохраняем источники и статьи при изменениях
   useEffect(() => {
     localStorage.setItem('omni_sources', JSON.stringify(sources));
   }, [sources]);
 
+  useEffect(() => {
+    localStorage.setItem('omni_articles', JSON.stringify(articles));
+  }, [articles]);
+
   const loadInbox = async () => {
     setIsFetching(true);
     try {
-        // Передаем список URL наших каналов на бэкенд
         const channelUrls = sources.filter(s => s.isActive).map(s => s.url);
-        const data = await fetchInbox(channelUrls);
-        setArticles(data);
+        const newData = await fetchInbox(channelUrls);
+        
+        // Сливаем старые статьи с новыми, избегая дубликатов по тексту
+        setArticles(prev => {
+            const existingTexts = new Set(prev.map(a => a.originalText.slice(0, 50)));
+            const filteredNew = newData.filter((a: any) => !existingTexts.has(a.originalText.slice(0, 50)));
+            return [...filteredNew, ...prev].slice(0, 50); // Храним только последние 50
+        });
     } catch (e) {
         console.error(e);
     } finally {
@@ -73,9 +88,32 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadInbox();
-  }, []);
+  const exportConfig = () => {
+    const config = { sources, articles };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `omnipost_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+  };
+
+  const importConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.sources) setSources(data.sources);
+        if (data.articles) setArticles(data.articles);
+        alert('Config imported successfully!');
+      } catch (err) {
+        alert('Invalid config file');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const addSource = () => {
     if (!newSourceUrl.trim()) return;
@@ -111,8 +149,8 @@ const App: React.FC = () => {
 
       setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
       setSelectedArticle(updatedArticle);
-    } catch (error) {
-      alert("AI Processing Error. Check your API Key.");
+    } catch (error: any) {
+      alert("AI Error: " + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -151,7 +189,6 @@ const App: React.FC = () => {
           <SidebarItem icon={<Inbox size={20} />} label="Inbound Feed" active={activeTab === 'inbox'} onClick={() => setActiveTab('inbox')} />
           <SidebarItem icon={<Link2 size={20} />} label="Sources" active={activeTab === 'sources'} onClick={() => setActiveTab('sources')} />
           <SidebarItem icon={<UserCheck size={20} />} label="Accounts" active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')} />
-          <SidebarItem icon={<LayoutDashboard size={20} />} label="Stats" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
           <SidebarItem icon={<SettingsIcon size={20} />} label="Config" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
         </nav>
         <button 
@@ -179,24 +216,27 @@ const App: React.FC = () => {
           {activeTab === 'inbox' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {articles.map(article => (
-                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 hover:border-indigo-500/30 transition-all group">
+                <div key={article.id} className={`glass p-8 rounded-[32px] border transition-all group ${article.status === 'posted' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800/50 hover:border-indigo-500/30'}`}>
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-[10px] font-black tracking-widest text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg border border-indigo-500/10">{article.source}</span>
-                    <span className="text-[10px] text-slate-600 font-mono">{article.timestamp}</span>
+                    <span className="text-[10px] text-slate-600 font-mono">
+                        {article.status === 'posted' ? <span className="text-emerald-500 flex items-center gap-1"><CheckCircle size={10} /> POSTED</span> : article.timestamp}
+                    </span>
                   </div>
                   <p className="text-slate-300 text-sm leading-relaxed mb-8 line-clamp-4">{article.originalText}</p>
                   <button 
                     onClick={() => handleApprove(article)} 
-                    className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2"
+                    disabled={article.status === 'posted'}
+                    className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <Rocket size={16} /> Process with AI
+                    <Rocket size={16} /> {article.status === 'posted' ? 'Published' : 'Process with AI'}
                   </button>
                 </div>
               ))}
               {articles.length === 0 && !isFetching && (
                 <div className="col-span-full py-20 text-center opacity-40">
                     <Inbox size={48} className="mx-auto mb-4" />
-                    <p>Inbox is empty. Add channels in "Sources" tab.</p>
+                    <p>Inbox is empty. Add channels in "Sources" tab and press "Scan".</p>
                 </div>
               )}
             </div>
@@ -248,16 +288,33 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'settings' && (
-            <div className="max-w-2xl mx-auto glass p-12 rounded-[40px] border border-slate-800 space-y-8">
-                <h3 className="text-xl font-bold flex items-center gap-3"><Server className="text-indigo-500" /> API Configuration</h3>
-                <div className="space-y-4">
-                    <div className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                        {"To enable real Telegram integration, go to your "}<b>Vercel Project Settings → Environment Variables</b>{" and add:"}<br/><br/>
-                        <code>TELEGRAM_BOT_TOKEN</code><br/>
+            <div className="max-w-2xl mx-auto space-y-8">
+                <div className="glass p-12 rounded-[40px] border border-slate-800 space-y-8">
+                    <h3 className="text-xl font-bold flex items-center gap-3"><Server className="text-indigo-500" /> Infrastructure</h3>
+                    <div className="space-y-4">
+                        <div className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                            <b>LocalStorage Persistence:</b> Your sources and articles are saved in your browser. They won't be lost when you redeploy. <br/><br/>
+                            <b>Vercel Environment:</b> Ensure <code>API_KEY</code> and <code>TELEGRAM_BOT_TOKEN</code> are set in Vercel Dashboard.
+                        </div>
                     </div>
-                    <p className="text-sm text-slate-400 italic">
-                        Note: The bot must be an administrator in the channels you want to monitor.
-                    </p>
+                </div>
+
+                <div className="glass p-12 rounded-[40px] border border-slate-800 space-y-8">
+                    <h3 className="text-xl font-bold flex items-center gap-3"><Database className="text-indigo-500" /> Data Management</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <button 
+                            onClick={exportConfig}
+                            className="flex items-center justify-center gap-2 p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition-all font-bold"
+                        >
+                            <Download size={20} className="text-indigo-400" />
+                            Export Backup
+                        </button>
+                        <label className="flex items-center justify-center gap-2 p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition-all font-bold cursor-pointer">
+                            <Upload size={20} className="text-indigo-400" />
+                            Import Backup
+                            <input type="file" className="hidden" accept=".json" onChange={importConfig} />
+                        </label>
+                    </div>
                 </div>
             </div>
           )}
