@@ -7,20 +7,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { task, text, prompt } = req.body;
 
-  // Ensure API_KEY is available from environment
   if (!process.env.API_KEY) {
     return res.status(500).json({ error: "API_KEY is not configured on the server." });
   }
 
-  // Use process.env.API_KEY directly during initialization as per SDK guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     if (task === 'rewrite') {
+      // Переключаемся на flash-версию, так как у нее больше лимитов в бесплатном тире
       const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: [{ parts: [{ text: `Rewrite the following article to be engaging, professional, and optimized for social media platforms. Preserve the core facts but improve the flow and tone. Use emojis where appropriate. Article: ${text}` }] }],
-        config: { temperature: 0.8, thinkingConfig: { thinkingBudget: 4000 } },
+        config: { 
+          temperature: 0.7,
+          // Убираем thinkingConfig для flash, чтобы избежать лишних затрат квоты
+        },
       });
       return res.status(200).json({ result: response.text });
     }
@@ -40,7 +42,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       });
-      // Extracting text from response and parsing JSON
       const data = JSON.parse(response.text?.trim() || '{"keywords":[]}');
       return res.status(200).json(data);
     }
@@ -52,7 +53,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         config: { imageConfig: { aspectRatio: "16:9" } }
       });
 
-      // Iterate through candidates and parts to find the image part
       for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
           return res.status(200).json({ url: `data:image/png;base64,${part.inlineData.data}` });
