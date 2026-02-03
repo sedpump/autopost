@@ -30,7 +30,8 @@ import {
   Info,
   HelpCircle,
   ShieldAlert,
-  Key
+  Key,
+  Edit2
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -43,6 +44,7 @@ import {
   postToPlatforms,
   fetchAccounts,
   addAccount,
+  updateAccount,
   deleteAccount
 } from './apiService';
 
@@ -65,6 +67,7 @@ const App: React.FC = () => {
   const [hasImageKey, setHasImageKey] = useState<boolean>(true);
   
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
   const [newAccName, setNewAccName] = useState('');
   const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '', accessToken: '', ownerId: '' });
@@ -151,7 +154,28 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAddAccount = async () => {
+  const openAddAccount = () => {
+    setEditingAccount(null);
+    setNewAccPlatform(Platform.TELEGRAM);
+    setNewAccName('');
+    setNewAccCreds({ botToken: '', chatId: '', accessToken: '', ownerId: '' });
+    setShowAddAccount(true);
+  };
+
+  const openEditAccount = (acc: Account) => {
+    setEditingAccount(acc);
+    setNewAccPlatform(acc.platform);
+    setNewAccName(acc.name);
+    setNewAccCreds({
+      botToken: acc.credentials.botToken || '',
+      chatId: acc.credentials.chatId || '',
+      accessToken: acc.credentials.accessToken || '',
+      ownerId: acc.credentials.ownerId || ''
+    });
+    setShowAddAccount(true);
+  };
+
+  const handleSaveAccount = async () => {
     try {
       const creds: any = {};
       if (newAccPlatform === Platform.TELEGRAM) {
@@ -166,15 +190,33 @@ const App: React.FC = () => {
         creds.ownerId = newAccCreds.ownerId.trim();
       }
 
-      await addAccount({
-        platform: newAccPlatform,
-        name: newAccName,
-        credentials: creds
-      });
+      if (editingAccount) {
+        await updateAccount(editingAccount.id, {
+          name: newAccName,
+          credentials: creds
+        });
+      } else {
+        await addAccount({
+          platform: newAccPlatform,
+          name: newAccName,
+          credentials: creds
+        });
+      }
+      
       setShowAddAccount(false);
       refreshData();
     } catch (e) {
-      alert("Ошибка при добавлении аккаунта");
+      alert("Ошибка при сохранении аккаунта");
+    }
+  };
+
+  const handleDeleteAccount = async (id: string) => {
+    if (!confirm("Удалить эту интеграцию?")) return;
+    try {
+      await deleteAccount(id);
+      refreshData();
+    } catch (e) {
+      alert("Ошибка удаления");
     }
   };
 
@@ -186,7 +228,6 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       const variants = await rewriteArticle(article.originalText);
-      // Используем первый вариант для генерации картинки (он обычно самый качественный)
       let imageUrl = '';
       try {
         const visualPromptData = await extractKeyConcepts(variants[0].content);
@@ -409,7 +450,7 @@ const App: React.FC = () => {
                   <p className="text-slate-500 text-sm">Настройте свои площадки для автоматического постинга.</p>
                 </div>
                 <button 
-                  onClick={() => setShowAddAccount(true)}
+                  onClick={openAddAccount}
                   className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
                 >
                   <Plus size={20} /> Новая интеграция
@@ -423,7 +464,10 @@ const App: React.FC = () => {
                       <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400 group-hover:text-white group-hover:bg-indigo-600 transition-all">
                         <Globe size={20} />
                       </div>
-                      <button onClick={() => deleteAccount(acc.id)} className="text-slate-600 hover:text-red-400 transition-all p-2"><Trash2 size={16}/></button>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEditAccount(acc)} className="text-slate-600 hover:text-indigo-400 transition-all p-2"><Edit2 size={16}/></button>
+                        <button onClick={() => handleDeleteAccount(acc.id)} className="text-slate-600 hover:text-red-400 transition-all p-2"><Trash2 size={16}/></button>
+                      </div>
                     </div>
                     <h4 className="font-bold text-white text-lg">{acc.name || 'Аккаунт'}</h4>
                     <p className="text-slate-500 text-xs mb-4 uppercase tracking-widest font-black">{acc.platform}</p>
@@ -438,14 +482,17 @@ const App: React.FC = () => {
               {showAddAccount && (
                 <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
                   <div className="glass w-full max-w-md p-10 rounded-[40px] border border-white/5 shadow-2xl animate-in zoom-in duration-300">
-                    <h3 className="text-2xl font-bold text-white mb-8">Подключить платформу</h3>
+                    <h3 className="text-2xl font-bold text-white mb-8">
+                      {editingAccount ? 'Изменить параметры' : 'Подключить платформу'}
+                    </h3>
                     <div className="space-y-4">
                       <div className="space-y-1">
                          <p className="text-[10px] font-black text-slate-500 uppercase px-2 mb-1">Выберите сеть</p>
                          <select 
+                            disabled={!!editingAccount}
                             value={newAccPlatform}
                             onChange={e => setNewAccPlatform(e.target.value as Platform)}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500 appearance-none"
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500 appearance-none disabled:opacity-50"
                           >
                             {Object.values(Platform).map(p => <option key={p} value={p}>{p}</option>)}
                           </select>
@@ -515,7 +562,9 @@ const App: React.FC = () => {
 
                       <div className="flex gap-4 mt-8">
                         <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
-                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Сохранить</button>
+                        <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">
+                          {editingAccount ? 'Сохранить' : 'Добавить'}
+                        </button>
                       </div>
                     </div>
                   </div>

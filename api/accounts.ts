@@ -32,6 +32,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(data);
   }
 
+  if (req.method === 'PUT') {
+    const { id, name, credentials } = req.body;
+    if (!id) return res.status(400).json({ error: 'ID is required for update' });
+
+    const { data, error } = await supabase
+      .from('target_accounts')
+      .update({ name, credentials })
+      .eq('id', id)
+      .eq('user_id', userId) // Защита: обновляем только своё
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json(data);
+  }
+
   if (req.method === 'DELETE') {
     const { id } = req.query;
     const { error } = await supabase

@@ -52,8 +52,6 @@ export const deleteSource = async (id: string) => {
   });
 };
 
-// Работа с аккаунтами (Интеграции)
-// Updated return type to use Account interface from types.ts
 export const fetchAccounts = async (): Promise<Account[]> => {
   const response = await fetch('/api/accounts', {
     headers: getAuthHeaders()
@@ -66,6 +64,15 @@ export const addAccount = async (accountData: any) => {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(accountData)
+  });
+  return await response.json();
+};
+
+export const updateAccount = async (id: string, accountData: any) => {
+  const response = await fetch('/api/accounts', {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ id, ...accountData })
   });
   return await response.json();
 };
