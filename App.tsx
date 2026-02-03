@@ -19,7 +19,8 @@ import {
   LogOut,
   ChevronRight,
   Globe,
-  Send
+  Send,
+  Hash
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -97,6 +98,28 @@ const App: React.FC = () => {
       alert("Login failed");
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const handleAddSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSourceUrl.trim()) return;
+    try {
+      await addSource(newSourceUrl);
+      setNewSourceUrl('');
+      refreshData();
+    } catch (e) {
+      alert("Failed to add source");
+    }
+  };
+
+  const handleDeleteSource = async (id: string) => {
+    if (!confirm("Are you sure?")) return;
+    try {
+      await deleteSource(id);
+      refreshData();
+    } catch (e) {
+      alert("Failed to delete source");
     }
   };
 
@@ -202,14 +225,23 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto relative">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
           <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
-          <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20">SYNC NOW</button>
+          <div className="flex items-center gap-4">
+            {isFetching && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
+            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20">SYNC NOW</button>
+          </div>
         </header>
 
         <div className="p-10 max-w-7xl mx-auto">
           {activeTab === 'inbox' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {articles.length === 0 && !isFetching && (
+                <div className="col-span-full py-20 flex flex-col items-center opacity-50">
+                  <Inbox size={48} className="mb-4" />
+                  <p>Your feed is empty. Add sources to begin.</p>
+                </div>
+              )}
               {articles.map(article => (
-                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full">
+                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full animate-in fade-in slide-in-from-bottom-4">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-[10px] font-black text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg">{article.source}</span>
                   </div>
@@ -219,6 +251,58 @@ const App: React.FC = () => {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {activeTab === 'sources' && (
+            <div className="space-y-10">
+              <div className="max-w-2xl">
+                <h3 className="text-2xl font-bold text-white mb-2">Cloud Monitoring</h3>
+                <p className="text-slate-500 text-sm mb-8">Add Telegram channels to monitor for fresh content. We'll automatically fetch the latest posts.</p>
+                
+                <form onSubmit={handleAddSource} className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                    <input 
+                      type="text" 
+                      placeholder="Telegram username (e.g. techcrunch)"
+                      value={newSourceUrl}
+                      onChange={e => setNewSourceUrl(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-12 pr-6 py-4 text-white focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                  <button className="bg-indigo-600 hover:bg-indigo-500 px-8 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20">
+                    <Plus size={20} /> Add
+                  </button>
+                </form>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sources.map(source => (
+                  <div key={source.id} className="glass p-6 rounded-3xl border border-slate-800 group hover:border-indigo-500/30 transition-all">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-indigo-500/10 p-3 rounded-2xl text-indigo-400">
+                          <Link2 size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white">{source.url}</h4>
+                          <div className="flex items-center gap-1.5 text-[10px] text-emerald-500 font-bold uppercase mt-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Monitoring
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleDeleteSource(source.id)}
+                        className="opacity-0 group-hover:opacity-100 p-2 text-slate-500 hover:text-red-400 transition-all"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
