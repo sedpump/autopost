@@ -13,8 +13,6 @@ export const postToPlatforms = async (article: Article, platforms: Platform[], b
     }
   };
 
-  // Если backendUrl не пустой и не начинается на '/', используем его (для Railway)
-  // Иначе используем встроенные Vercel Functions (/api/publish)
   const endpoint = backendUrl && !backendUrl.startsWith('/') 
     ? `${backendUrl}/api/publish` 
     : '/api/publish';
@@ -38,9 +36,11 @@ export const postToPlatforms = async (article: Article, platforms: Platform[], b
   }
 };
 
-export const fetchInbox = async () => {
+export const fetchInbox = async (sources: string[] = []) => {
   try {
-    const response = await fetch('/api/articles');
+    // Передаем источники как query parameter
+    const query = sources.length ? `?sources=${encodeURIComponent(sources.join(','))}` : '';
+    const response = await fetch(`/api/articles${query}`);
     if (!response.ok) throw new Error('Failed to fetch inbox');
     return await response.json();
   } catch (error) {
