@@ -15,14 +15,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (task === 'rewrite') {
-      // Переключаемся на flash-версию, так как у нее больше лимитов в бесплатном тире
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ parts: [{ text: `Rewrite the following article to be engaging, professional, and optimized for social media platforms. Preserve the core facts but improve the flow and tone. Use emojis where appropriate. Article: ${text}` }] }],
-        config: { 
-          temperature: 0.7,
-          // Убираем thinkingConfig для flash, чтобы избежать лишних затрат квоты
-        },
+        contents: [{ parts: [{ text: `Rewrite the following article to be engaging, professional, and optimized for social media platforms. Use emojis. Article: ${text}` }] }],
+        config: { temperature: 0.7 },
       });
       return res.status(200).json({ result: response.text });
     }
@@ -30,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'keywords') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ parts: [{ text: `Extract 3-5 main keywords from this text as a JSON array of strings: ${text}` }] }],
+        contents: [{ parts: [{ text: `Extract 3 main keywords from this text as a JSON array: ${text}` }] }],
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -47,18 +43,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (task === 'image') {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: `Professional social media illustration: ${prompt}` }] },
-        config: { imageConfig: { aspectRatio: "16:9" } }
-      });
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: { parts: [{ text: `A clean, modern professional social media illustration about: ${prompt}. Cinematic lighting, high quality.` }] },
+          config: { imageConfig: { aspectRatio: "16:9" } }
+        });
 
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          return res.status(200).json({ url: `data:image/png;base64,${part.inlineData.data}` });
+        const candidates = response.candidates || [];
+        if (candidates.length > 0) {
+          for (const part of candidates[0].content.parts) {
+            if (part.inlineData) {
+              return res.status(200).json({ url: `data:image/png;base64,${part.inlineData.data}` });
+            }
+          }
         }
+        
+        // Если картинка не вернулась, но ошибки API не было (например, модель вернула текст)
+        throw new Error("Model returned no image data");
+      } catch (innerError: any) {
+        console.error("Internal Image Error:", innerError);
+        return res.status(500).json({ error: "Image generation failed: " + innerError.message });
       }
-      throw new Error("No image generated");
     }
 
     res.status(400).json({ error: "Unknown task" });

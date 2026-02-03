@@ -20,7 +20,8 @@ import {
   ChevronRight,
   Globe,
   Send,
-  Hash
+  Hash,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -140,15 +141,25 @@ const App: React.FC = () => {
   const handleApprove = async (article: Article) => {
     setIsProcessing(true);
     try {
+      // 1. Рерайт текста (основная задача)
       const rewritten = await rewriteArticle(article.originalText);
-      const keywords = await extractKeyConcepts(article.originalText);
-      const imageUrl = await generateImageForArticle(keywords.join(", "));
+      
+      // 2. Генерация картинки (второстепенная, может упасть из-за лимитов)
+      let imageUrl = '';
+      try {
+        const keywords = await extractKeyConcepts(article.originalText);
+        if (keywords.length > 0) {
+          imageUrl = await generateImageForArticle(keywords.join(", "));
+        }
+      } catch (imgError) {
+        console.warn("Image generation failed, continuing with text only.", imgError);
+      }
       
       const updatedArticle: Article = {
         ...article,
         status: 'approved',
         rewrittenText: rewritten,
-        generatedImageUrl: imageUrl,
+        generatedImageUrl: imageUrl || undefined,
       };
 
       setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
@@ -245,7 +256,7 @@ const App: React.FC = () => {
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-[10px] font-black text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg">{article.source}</span>
                   </div>
-                  <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1">{article.originalText}</p>
+                  <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1 line-clamp-6">{article.originalText}</p>
                   <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2">
                     <Zap size={16} /> Process with AI
                   </button>
@@ -258,7 +269,7 @@ const App: React.FC = () => {
             <div className="space-y-10">
               <div className="max-w-2xl">
                 <h3 className="text-2xl font-bold text-white mb-2">Cloud Monitoring</h3>
-                <p className="text-slate-500 text-sm mb-8">Add Telegram channels to monitor for fresh content. We'll automatically fetch the latest posts.</p>
+                <p className="text-slate-500 text-sm mb-8">Add Telegram channels to monitor for fresh content.</p>
                 
                 <form onSubmit={handleAddSource} className="flex gap-3">
                   <div className="relative flex-1">
@@ -404,7 +415,14 @@ const App: React.FC = () => {
             <div className="glass w-full max-w-4xl max-h-[85vh] rounded-[40px] border border-white/5 overflow-hidden flex shadow-2xl animate-in slide-in-from-bottom-8 duration-500">
                <div className="flex-1 p-12 overflow-y-auto border-r border-slate-800">
                   <h3 className="text-2xl font-black mb-10 text-white">Review Generated Content</h3>
-                  {selectedArticle.generatedImageUrl && <img src={selectedArticle.generatedImageUrl} className="w-full h-64 object-cover rounded-3xl mb-8 border border-slate-800" />}
+                  {selectedArticle.generatedImageUrl ? (
+                    <img src={selectedArticle.generatedImageUrl} className="w-full h-64 object-cover rounded-3xl mb-8 border border-slate-800" />
+                  ) : (
+                    <div className="w-full h-48 bg-slate-900 rounded-3xl mb-8 flex flex-col items-center justify-center border border-dashed border-slate-800 text-slate-500">
+                       <ImageIcon size={32} className="mb-2 opacity-20" />
+                       <span className="text-xs uppercase tracking-widest font-bold">Image not generated</span>
+                    </div>
+                  )}
                   <div className="prose prose-invert bg-slate-900/50 p-8 rounded-3xl border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-wrap">
                      {selectedArticle.rewrittenText}
                   </div>
