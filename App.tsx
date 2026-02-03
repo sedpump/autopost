@@ -180,11 +180,9 @@ const App: React.FC = () => {
   };
 
   const handleSaveAccount = async () => {
-    // Автоматическая коррекция Chat ID для Telegram
     let finalCreds = { ...newAccCreds };
     if (newAccPlatform === Platform.TELEGRAM && finalCreds.chatId) {
       let cid = finalCreds.chatId.trim();
-      // Если это не число и не начинается с @, добавляем @
       if (!cid.startsWith('@') && !cid.startsWith('-') && isNaN(Number(cid))) {
         finalCreds.chatId = `@${cid}`;
       }
@@ -225,7 +223,6 @@ const App: React.FC = () => {
       alert("Сначала подключите хотя бы один аккаунт");
       return;
     }
-    // Тот самый мем из скрина
     const testImage = "https://raw.githubusercontent.com/otter-stuff/memes/main/ebat.jpg";
     const testArticle: Article = {
       id: 'debug_' + Date.now(),
@@ -244,7 +241,7 @@ const App: React.FC = () => {
       const result = await postToPlatforms({ ...testArticle, rewrittenText: testArticle.rewrittenText });
       setDeployResults(result.results);
     } catch (e: any) {
-      alert("Ошибка: " + e.message);
+      alert("Ошибка запроса: " + e.message);
     } finally {
       setIsDeploying(false);
     }
@@ -294,6 +291,7 @@ const App: React.FC = () => {
   const handleDeploy = async () => {
     if (!selectedArticle) return;
     setIsDeploying(true);
+    setDeployResults(null);
     try {
       const result = await postToPlatforms({ 
         ...selectedArticle, 
@@ -301,7 +299,7 @@ const App: React.FC = () => {
       });
       setDeployResults(result.results);
     } catch (e: any) {
-      alert("Ошибка: " + e.message);
+      alert("Сетевая ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
     }
@@ -497,7 +495,7 @@ const App: React.FC = () => {
                     Ключ берите во вкладке <b>Ключи доступа</b>.
                   </div>
                   <input placeholder="Access Token (Ключ доступа)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
-                  <input placeholder="ID группы (с минусом, напр. -223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="ID группы (напр. 223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                 </div>
               )}
 
@@ -526,7 +524,7 @@ const App: React.FC = () => {
       {(isProcessing || isDeploying) && (
         <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
            <div className="w-20 h-20 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-white text-xl font-black">{isDeploying ? 'Публикация контента...' : 'Нейросети обрабатывают контент...'}</p>
+           <p className="text-white text-xl font-black tracking-wide">{isDeploying ? 'Публикация контента...' : 'Нейросети обрабатывают контент...'}</p>
         </div>
       )}
 
@@ -555,7 +553,7 @@ const App: React.FC = () => {
                      <div className="lg:col-span-7 space-y-8">
                         {selectedArticle.generatedImageUrl && (
                           <div className="relative group">
-                            <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" />
+                            <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
                             <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/10 transition-all rounded-[40px] pointer-events-none"></div>
                           </div>
                         )}
@@ -572,21 +570,27 @@ const App: React.FC = () => {
                </div>
                <div className="w-[400px] p-12 bg-slate-950/60 backdrop-blur-md flex flex-col">
                   <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
-                  <div className="flex-1 space-y-4">
+                  <div className="flex-1 space-y-4 overflow-y-auto pr-2">
                      <h5 className="text-[10px] font-black uppercase text-slate-500 mb-4 px-2">Выбранные каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (
-                        <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                        <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 transition-all animate-in fade-in slide-in-from-right-4 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                            <div className="flex justify-between items-center">
                              <p className="text-sm font-black text-white">{res.name}</p>
-                             {res.status === 'success' ? <Check size={16} className="text-emerald-500"/> : <AlertCircle size={16} className="text-red-500"/>}
+                             {res.status === 'success' ? <CheckCircle size={16} className="text-emerald-500"/> : <ShieldAlert size={16} className="text-red-500"/>}
                            </div>
                            <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
-                           {res.error && <p className="text-[10px] text-red-300/60 mt-2 line-clamp-3 bg-red-950/20 p-2 rounded-xl">{res.error}</p>}
+                           {res.error && (
+                             <div className="mt-3 p-3 bg-red-950/30 rounded-2xl border border-red-500/10">
+                               <p className="text-[10px] text-red-300 leading-relaxed font-medium">
+                                 {res.error}
+                               </p>
+                             </div>
+                           )}
                         </div>
                      )) : accounts.map(acc => (
-                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between hover:bg-slate-900 transition-all">
+                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between hover:bg-slate-900 transition-all group">
                            <span className="text-sm font-bold text-white">{acc.name}</span>
-                           <div className="text-slate-700">{renderAccountIcon(acc.platform)}</div>
+                           <div className="text-slate-700 group-hover:text-indigo-400 transition-colors">{renderAccountIcon(acc.platform)}</div>
                         </div>
                      ))}
                   </div>

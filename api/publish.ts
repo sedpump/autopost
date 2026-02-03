@@ -10,144 +10,114 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY || ''
 );
 
-/**
- * Получение буфера изображения.
- */
 async function getImageBuffer(imageData: string): Promise<Buffer | null> {
   if (!imageData) return null;
   try {
     if (imageData.startsWith('data:image')) {
-      const base64Data = imageData.split(',')[1];
-      return Buffer.from(base64Data, 'base64');
+      return Buffer.from(imageData.split(',')[1], 'base64');
     } 
     if (imageData.startsWith('http')) {
       const response = await axios.get(imageData, { 
         responseType: 'arraybuffer',
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        timeout: 15000,
+        headers: { 'User-Agent': 'Mozilla/5.0' }
       });
       return Buffer.from(response.data);
     }
     return Buffer.from(imageData, 'base64');
   } catch (e: any) {
-    console.error('Image processing failed:', e.message);
-    return null;
+    throw new Error(`Ошибка изображения: ${e.message}`);
   }
 }
 
-/**
- * Публикация в Telegram.
- */
 async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
   const botApiUrl = `https://api.telegram.org/bot${token.trim()}`;
-  const cleanChatId = chatId.trim();
-
   try {
     if (image) {
       const buffer = await getImageBuffer(image);
       if (buffer) {
         const form = new FormData();
-        form.append('chat_id', cleanChatId);
+        form.append('chat_id', chatId.trim());
         form.append('photo', buffer, { filename: 'post.png' });
-        const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
-        form.append('caption', caption);
-
-        await axios.post(`${botApiUrl}/sendPhoto`, form, {
-          headers: form.getHeaders(),
-          timeout: 30000
-        });
-
-        if (text.length > 1024) {
-          await axios.post(`${botApiUrl}/sendMessage`, { chat_id: cleanChatId, text: text });
-        }
+        form.append('caption', text.slice(0, 1024));
+        await axios.post(`${botApiUrl}/sendPhoto`, form, { headers: form.getHeaders(), timeout: 30000 });
         return;
       }
     }
-    await axios.post(`${botApiUrl}/sendMessage`, { chat_id: cleanChatId, text: text });
+    await axios.post(`${botApiUrl}/sendMessage`, { chat_id: chatId.trim(), text });
   } catch (e: any) {
-    const tgError = e.response?.data?.description || e.message;
-    throw new Error(`Telegram: ${tgError}`);
+    throw new Error(`TG: ${e.response?.data?.description || e.message}`);
   }
 }
 
-/**
- * Публикация во ВКонтакте (через POST и URLSearchParams).
- */
 async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string) {
   const token = accessToken.trim();
-  let targetId = ownerId.trim();
-  
-  // VK требует, чтобы ID группы был отрицательным для owner_id
-  if (!targetId.startsWith('-')) {
-    targetId = `-${targetId}`;
-  }
+  const rawGroupId = ownerId.trim().replace(/\D/g, '');
+  const targetId = `-${rawGroupId}`;
   
   const vkPost = async (method: string, data: any) => {
     const params = new URLSearchParams();
-    for (const key in data) {
-      params.append(key, data[key]);
-    }
+    for (const key in data) params.append(key, data[key]);
     params.append('access_token', token);
     params.append('v', '5.131');
     
-    const response = await axios.post(`https://api.vk.com/method/${method}`, params, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 20000
-    });
+    const fullUrl = `https://api.vk.com/method/${method}`;
     
-    if (response.data.error) {
-      const { error_code, error_msg } = response.data.error;
-      throw new Error(`VK Error ${error_code}: ${error_msg}`);
+    // ЭТО ТО, ЧТО НУЖНО ПОДДЕРЖКЕ (выводится в Logs Vercel)
+    console.log(`--- [VK COMMAND START] ---`);
+    console.log(`METHOD: POST`);
+    console.log(`URL: ${fullUrl}`);
+    console.log(`PARAMS:`, params.toString());
+    console.log(`--- [VK COMMAND END] ---`);
+    
+    try {
+      const response = await axios.post(fullUrl, params, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 25000
+      });
+      
+      console.log(`[VK RESPONSE] Full JSON:`, JSON.stringify(response.data));
+
+      if (response.data.error) {
+        const { error_code, error_msg } = response.data.error;
+        throw new Error(`VK Error ${error_code}: ${error_msg}`);
+      }
+      return response.data.response;
+    } catch (err: any) {
+      const errDetail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      console.error(`[VK CRITICAL ERROR]:`, errDetail);
+      throw new Error(`ВК: ${errDetail}`);
     }
-    return response.data.response;
   };
 
   try {
     let attachments = '';
-
     if (image) {
+      const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
       const buffer = await getImageBuffer(image);
       if (buffer) {
-        // 1. Получаем сервер
-        const uploadServer = await vkPost('photos.getWallUploadServer', {
-          group_id: Math.abs(parseInt(targetId))
-        });
-        
-        // 2. Загружаем файл
         const form = new FormData();
         form.append('photo', buffer, { filename: 'image.png' });
-        const uploadRes = await axios.post(uploadServer.upload_url, form, { 
-          headers: form.getHeaders(),
-          timeout: 20000 
-        });
-
-        // 3. Сохраняем фото
-        const savedPhotos = await vkPost('photos.saveWallPhoto', {
-          group_id: Math.abs(parseInt(targetId)),
+        const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
+        const saved = await vkPost('photos.saveWallPhoto', {
+          group_id: rawGroupId,
           photo: uploadRes.data.photo,
           server: uploadRes.data.server,
           hash: uploadRes.data.hash
         });
-
-        if (savedPhotos && savedPhotos.length > 0) {
-          const photo = savedPhotos[0];
-          attachments = `photo${photo.owner_id}_${photo.id}`;
-        }
+        if (saved?.length) attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
       }
     }
 
-    // 4. Публикуем пост (обязательно с from_group: 1)
+    // Финальный вызов публикации
     await vkPost('wall.post', {
       owner_id: targetId,
       from_group: 1,
       message: text,
       attachments: attachments
     });
-
   } catch (e: any) {
-    throw new Error(e.message);
+    throw new Error(e.message || 'Ошибка ВК');
   }
 }
 
@@ -157,31 +127,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!userId) return res.status(401).send('Unauthorized');
 
   const { text, image } = req.body;
-  
-  const { data: accounts, error: accError } = await supabase
-    .from('target_accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('is_active', true);
+  const { data: accounts } = await supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
 
-  if (accError) return res.status(500).json({ error: accError.message });
-  if (!accounts || accounts.length === 0) return res.json({ results: [] });
+  if (!accounts) return res.json({ results: [] });
 
   const results = [];
-  // Обрабатываем последовательно, чтобы избежать Race Condition и лимитов API
   for (const acc of accounts) {
     try {
-      if (acc.platform === 'Telegram') {
-        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
-        results.push({ name: acc.name, status: 'success' });
-      } else if (acc.platform === 'VK') {
+      const p = acc.platform.toUpperCase();
+      if (p === 'VK' || p === 'ВК') {
         await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image);
         results.push({ name: acc.name, status: 'success' });
-      } else {
-        results.push({ name: acc.name, status: 'failed', error: 'Платформа пока в разработке' });
+      } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
+        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
+        results.push({ name: acc.name, status: 'success' });
       }
     } catch (e: any) {
-      console.error(`Error publishing to ${acc.name}:`, e.message);
       results.push({ name: acc.name, status: 'failed', error: e.message });
     }
   }
