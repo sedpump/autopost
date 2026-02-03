@@ -33,7 +33,9 @@ import {
   Key,
   Edit2,
   ShieldCheck,
-  Bug
+  Bug,
+  Instagram,
+  ZapOff
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -72,7 +74,7 @@ const App: React.FC = () => {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
   const [newAccName, setNewAccName] = useState('');
-  const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '', accessToken: '', ownerId: '' });
+  const [newAccCreds, setNewAccCreds] = useState<any>({});
 
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -161,7 +163,7 @@ const App: React.FC = () => {
     setEditingAccount(null);
     setNewAccPlatform(Platform.TELEGRAM);
     setNewAccName('');
-    setNewAccCreds({ botToken: '', chatId: '', accessToken: '', ownerId: '' });
+    setNewAccCreds({});
     setShowAddAccount(true);
   };
 
@@ -169,47 +171,24 @@ const App: React.FC = () => {
     setEditingAccount(acc);
     setNewAccPlatform(acc.platform);
     setNewAccName(acc.name);
-    setNewAccCreds({
-      botToken: acc.credentials.botToken || '',
-      chatId: acc.credentials.chatId || '',
-      accessToken: acc.credentials.accessToken || '',
-      ownerId: acc.credentials.ownerId || ''
-    });
+    setNewAccCreds(acc.credentials);
     setShowAddAccount(true);
   };
 
   const handleSaveAccount = async () => {
     try {
-      const creds: any = {};
-      if (newAccPlatform === Platform.TELEGRAM) {
-        let cleanChatId = newAccCreds.chatId.trim();
-        if (!cleanChatId.startsWith('@') && !cleanChatId.startsWith('-') && isNaN(Number(cleanChatId))) {
-          cleanChatId = `@${cleanChatId}`;
-        }
-        creds.botToken = newAccCreds.botToken.trim();
-        creds.chatId = cleanChatId;
-      } else if (newAccPlatform === Platform.VK) {
-        let rawId = newAccCreds.ownerId.trim();
-        if (rawId && !rawId.startsWith('-') && !isNaN(Number(rawId))) {
-          rawId = `-${rawId}`;
-        }
-        creds.accessToken = newAccCreds.accessToken.trim();
-        creds.ownerId = rawId;
-      }
-
       if (editingAccount) {
         await updateAccount(editingAccount.id, {
           name: newAccName,
-          credentials: creds
+          credentials: newAccCreds
         });
       } else {
         await addAccount({
           platform: newAccPlatform,
           name: newAccName,
-          credentials: creds
+          credentials: newAccCreds
         });
       }
-      
       setShowAddAccount(false);
       refreshData();
     } catch (e) {
@@ -232,29 +211,24 @@ const App: React.FC = () => {
       alert("Сначала подключите хотя бы один аккаунт");
       return;
     }
-
-    if (!confirm("Запустить тестовую публикацию?")) return;
-
     const testImage = "https://cdn.midjourney.com/6886e6ce-bffa-45b1-a011-b1e47dcbc717/0_0.png";
-    
     const testArticle: Article = {
       id: 'debug_' + Date.now(),
       userId: user?.id || '',
-      source: 'OmniPost Debugger',
-      originalText: 'Тестовый пост',
+      source: 'OmniPost Debug',
+      originalText: 'Тестовая публикация',
       timestamp: new Date().toISOString(),
       status: 'approved',
-      rewrittenText: `🔍 OmniPost Al Debug: Тестовое сообщение.\n\nДата: ${new Date().toLocaleString()}\nСтатус связи: OK`,
+      rewrittenText: `🚀 Тестовый прогон OmniPost AI\nСтатус: OK\nВремя: ${new Date().toLocaleTimeString()}`,
       generatedImageUrl: testImage
     };
-
     setIsDeploying(true);
     setSelectedArticle(testArticle); 
     try {
       const result = await postToPlatforms(testArticle);
       setDeployResults(result.results);
     } catch (e: any) {
-      alert("Ошибка отладки: " + e.message);
+      alert("Ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
     }
@@ -305,7 +279,7 @@ const App: React.FC = () => {
       const result = await postToPlatforms(selectedArticle);
       setDeployResults(result.results);
     } catch (e: any) {
-      alert("Ошибка публикации: " + e.message);
+      alert("Ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
     }
@@ -332,6 +306,15 @@ const App: React.FC = () => {
     );
   }
 
+  const renderAccountIcon = (platform: Platform) => {
+    switch(platform) {
+      case Platform.TELEGRAM: return <Send size={20} />;
+      case Platform.VK: return <Globe size={20} />;
+      case Platform.INSTAGRAM: return <Instagram size={20} />;
+      default: return <Zap size={20} />;
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-200 font-inter">
       <aside className="w-72 glass border-r border-slate-800 flex flex-col p-6 space-y-8 z-20">
@@ -353,10 +336,6 @@ const App: React.FC = () => {
             <SettingsIcon size={20} /> <span className="font-medium">Настройки</span>
           </button>
         </nav>
-        <div className="px-4 py-4 bg-slate-900/50 rounded-2xl border border-slate-800/50">
-          <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Пользователь</p>
-          <p className="text-sm font-bold text-white truncate">{user.username}</p>
-        </div>
         <button onClick={() => setUser(null)} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-400/5 transition-all">
           <LogOut size={20} /> <span className="font-medium">Выйти</span>
         </button>
@@ -365,10 +344,7 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto relative bg-slate-950/50">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
           <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
-          <div className="flex items-center gap-4">
-            {isFetching && <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />}
-            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
-          </div>
+          <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
         </header>
 
         <div className="p-10 max-w-7xl mx-auto">
@@ -386,51 +362,6 @@ const App: React.FC = () => {
                   </button>
                 </div>
               ))}
-              {articles.length === 0 && !isFetching && (
-                <div className="col-span-full py-20 text-center glass rounded-[40px] border-dashed border-slate-800">
-                  <Inbox className="mx-auto text-slate-700 w-12 h-12 mb-4" />
-                  <h3 className="text-xl font-bold text-slate-400">Входящие пусты</h3>
-                  <p className="text-slate-600 mt-2">Добавьте источники во вкладке "Источники"</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'sources' && (
-            <div className="max-w-3xl space-y-8">
-              <div className="glass p-8 rounded-[40px] border border-slate-800">
-                <h3 className="text-2xl font-bold text-white mb-6">Добавить канал</h3>
-                <form onSubmit={handleAddSource} className="flex gap-4">
-                  <div className="flex-1 relative">
-                    <Hash className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
-                    <input 
-                      type="text" placeholder="username канала (например: duplex_news)" value={newSourceUrl}
-                      onChange={e => setNewSourceUrl(e.target.value)}
-                      className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 focus:border-indigo-500 outline-none text-white"
-                    />
-                  </div>
-                  <button className="bg-indigo-600 hover:bg-indigo-500 px-8 rounded-2xl font-bold text-white transition-all flex items-center gap-2">
-                    <Plus size={20} /> Добавить
-                  </button>
-                </form>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                {sources.map(source => (
-                  <div key={source.id} className="glass px-8 py-6 rounded-3xl border border-slate-800 flex items-center justify-between group hover:border-indigo-500/30 transition-all">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400"><Hash size={20} /></div>
-                      <div>
-                        <h4 className="font-bold text-white">{source.url}</h4>
-                        <p className="text-xs text-slate-500">Telegram Channel</p>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDeleteSource(source.id)} className="text-slate-700 hover:text-red-400 p-2 transition-colors">
-                      <Trash2 size={20} />
-                    </button>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 
@@ -440,10 +371,10 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-bold text-white">Каналы публикации</h3>
                 <div className="flex gap-3">
                   <button onClick={handleDebugPost} className="bg-slate-800 hover:bg-slate-700 px-6 py-3 rounded-2xl font-bold text-indigo-400 border border-indigo-500/20 flex items-center gap-2 transition-all">
-                    <Bug size={18} /> Отладка каналов
+                    <Bug size={18} /> Отладка
                   </button>
                   <button onClick={openAddAccount} className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all">
-                    <Plus size={20} /> Новая интеграция
+                    <Plus size={20} /> Добавить канал
                   </button>
                 </div>
               </div>
@@ -451,7 +382,7 @@ const App: React.FC = () => {
                 {accounts.map(acc => (
                   <div key={acc.id} className="glass p-6 rounded-3xl border border-slate-800 flex flex-col group hover:border-indigo-500/30 transition-all">
                     <div className="flex justify-between mb-4">
-                      <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400"><Globe size={20} /></div>
+                      <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400">{renderAccountIcon(acc.platform)}</div>
                       <div className="flex gap-1">
                         <button onClick={() => openEditAccount(acc)} className="text-slate-600 hover:text-indigo-400 p-2"><Edit2 size={16}/></button>
                         <button onClick={() => handleDeleteAccount(acc.id)} className="text-slate-600 hover:text-red-400 p-2"><Trash2 size={16}/></button>
@@ -465,56 +396,106 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {activeTab === 'settings' && (
-            <div className="max-w-2xl space-y-10">
-              <section>
-                <h3 className="text-2xl font-bold text-white mb-6">Искусственный интеллект</h3>
-                <div className="glass p-10 rounded-[40px] border border-slate-800">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-indigo-600/20 p-4 rounded-3xl text-indigo-400"><Key size={24} /></div>
-                      <div>
-                        <h4 className="font-bold text-white">Gemini 3 Pro API Key</h4>
-                        <p className="text-xs text-slate-500 mt-1">Необходим для генерации качественных иллюстраций 1K</p>
-                      </div>
-                    </div>
-                    {hasImageKey ? (
-                      <span className="bg-emerald-500/10 text-emerald-500 px-4 py-2 rounded-full text-[10px] font-black uppercase border border-emerald-500/20">Активен</span>
-                    ) : (
-                      <span className="bg-red-500/10 text-red-500 px-4 py-2 rounded-full text-[10px] font-black uppercase border border-red-500/20">Отсутствует</span>
-                    )}
-                  </div>
-                  <button onClick={handleOpenAiStudio} className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 rounded-3xl font-black text-white text-xs uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20">
-                    {hasImageKey ? "Сменить ключ API" : "Привязать ключ Google AI"}
-                  </button>
-                  <p className="text-[10px] text-center text-slate-600 mt-6 leading-relaxed">
-                    Мы используем модель gemini-3-pro-image-preview для создания контента.<br/>
-                    Ваш ключ хранится локально в браузере.
-                  </p>
+          {activeTab === 'sources' && (
+             <div className="max-w-2xl space-y-6">
+                <div className="glass p-8 rounded-[40px] border border-slate-800">
+                  <h3 className="text-xl font-bold text-white mb-6">Новый источник (Telegram)</h3>
+                  <form onSubmit={handleAddSource} className="flex gap-4">
+                    <input type="text" placeholder="@channel_name" value={newSourceUrl} onChange={e => setNewSourceUrl(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
+                    <button className="bg-indigo-600 px-8 rounded-2xl font-bold text-white"><Plus /></button>
+                  </form>
                 </div>
-              </section>
+                <div className="space-y-3">
+                  {sources.map(s => (
+                    <div key={s.id} className="glass p-6 rounded-3xl border border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-indigo-400"><Hash size={20} /> <span className="font-bold text-white">{s.url}</span></div>
+                      <button onClick={() => handleDeleteSource(s.id)} className="text-slate-600 hover:text-red-400"><Trash2 size={20}/></button>
+                    </div>
+                  ))}
+                </div>
+             </div>
+          )}
 
-              <section>
-                <h3 className="text-2xl font-bold text-white mb-6">Безопасность</h3>
-                <div className="glass p-8 rounded-[40px] border border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-2xl border border-slate-800/50">
-                    <div className="flex items-center gap-4">
-                      <ShieldCheck className="text-indigo-400" size={20} />
-                      <span className="font-medium text-slate-300">Двухфакторная авторизация</span>
+          {activeTab === 'settings' && (
+            <div className="max-w-xl glass p-10 rounded-[40px] border border-slate-800">
+               <h3 className="text-2xl font-bold text-white mb-8">Настройки системы</h3>
+               <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold">Ключ Gemini 3 Pro</h4>
+                      <p className="text-xs text-slate-500">Для генерации картинок</p>
                     </div>
-                    <div className="w-12 h-6 bg-slate-800 rounded-full relative"><div className="absolute left-1 top-1 w-4 h-4 bg-slate-600 rounded-full"></div></div>
+                    <button onClick={handleOpenAiStudio} className="bg-indigo-600/10 text-indigo-400 px-4 py-2 rounded-xl border border-indigo-500/20 font-bold text-xs uppercase">
+                      {hasImageKey ? "Обновить" : "Привязать"}
+                    </button>
                   </div>
-                </div>
-              </section>
+               </div>
             </div>
           )}
         </div>
       </main>
 
+      {showAddAccount && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="glass w-full max-w-xl p-10 rounded-[40px] border border-white/5 animate-in zoom-in duration-300">
+            <h3 className="text-2xl font-bold text-white mb-2">{editingAccount ? 'Редактировать' : 'Добавить'} канал</h3>
+            <p className="text-slate-500 text-sm mb-8">Выберите платформу и укажите данные доступа</p>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                 {Object.values(Platform).map(p => (
+                   <button key={p} onClick={() => setNewAccPlatform(p)} className={`py-4 rounded-2xl border font-bold text-sm flex items-center justify-center gap-2 transition-all ${newAccPlatform === p ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}>
+                     {renderAccountIcon(p)} {p}
+                   </button>
+                 ))}
+              </div>
+
+              <input placeholder="Название для себя (напр. 'Мой паблик ВК')" value={newAccName} onChange={e => setNewAccName(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
+
+              {newAccPlatform === Platform.TELEGRAM && (
+                <div className="space-y-3">
+                  <input placeholder="Bot Token (от @BotFather)" value={newAccCreds.botToken || ''} onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="Chat ID (напр. @my_channel или -100...)" value={newAccCreds.chatId || ''} onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                </div>
+              )}
+
+              {newAccPlatform === Platform.VK && (
+                <div className="space-y-3">
+                  <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-2">
+                    <Info size={14} className="inline mr-2 text-indigo-400" />
+                    Ключ берите во вкладке <b>Ключи доступа</b> (Access Tokens), не используйте Callback API.
+                  </div>
+                  <input placeholder="Access Token (Ключ доступа)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="ID группы (с минусом, напр. -223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                </div>
+              )}
+
+              {newAccPlatform === Platform.DZEN && (
+                <div className="space-y-3">
+                  <input placeholder="Dzen API Token" value={newAccCreds.token || ''} onChange={e => setNewAccCreds({...newAccCreds, token: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                </div>
+              )}
+
+              {newAccPlatform === Platform.INSTAGRAM && (
+                <div className="space-y-3">
+                  <input placeholder="FB Graph Access Token" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="Instagram Business Account ID" value={newAccCreds.igId || ''} onChange={e => setNewAccCreds({...newAccCreds, igId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                </div>
+              )}
+
+              <div className="flex gap-4 mt-8">
+                <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
+                <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all">Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {(isProcessing || isDeploying) && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
            <div className="w-20 h-20 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-white text-xl font-black">Синхронизация...</p>
+           <p className="text-white text-xl font-black">Обработка...</p>
         </div>
       )}
 
@@ -531,11 +512,10 @@ const App: React.FC = () => {
                               <p className="text-sm text-slate-300">{variant.content}</p>
                            </button>
                         ))}
-                        {!selectedArticle.rewrittenVariants && <div className="p-6 bg-slate-900/40 border border-dashed border-slate-700 rounded-3xl text-center text-slate-500 font-bold uppercase text-[10px]">Отладка: ИИ не задействован</div>}
                      </div>
                      <div className="lg:col-span-7 space-y-8">
-                        {selectedArticle.generatedImageUrl && <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800" />}
-                        <div className="p-10 bg-indigo-600/5 border border-indigo-500/10 rounded-[40px]">
+                        {selectedArticle.generatedImageUrl && <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" />}
+                        <div className="p-10 bg-slate-900/50 rounded-[40px] border border-slate-800">
                            <p className="text-base text-slate-100 font-medium whitespace-pre-wrap">{selectedArticle.rewrittenText}</p>
                         </div>
                      </div>
@@ -548,49 +528,23 @@ const App: React.FC = () => {
                         <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                            <p className="text-sm font-black text-white">{res.name}</p>
                            <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
-                           {res.error && <p className="text-[10px] text-red-300/60 italic mt-2">{res.error}</p>}
+                           {res.error && <p className="text-[10px] text-red-300/60 mt-2 line-clamp-2">{res.error}</p>}
                         </div>
                      )) : accounts.map(acc => (
                         <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">
                            <span className="text-sm font-bold text-white">{acc.name}</span>
-                           <Globe size={16} className="text-slate-700" />
+                           <div className="text-slate-700">{renderAccountIcon(acc.platform)}</div>
                         </div>
                      ))}
                   </div>
                   {!deployResults ? (
                     <button onClick={handleDeploy} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs">Опубликовать</button>
                   ) : (
-                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs">Завершить</button>
+                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs">Готово</button>
                   )}
                </div>
             </div>
          </div>
-      )}
-
-      {showAddAccount && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
-          <div className="glass w-full max-w-xl p-10 rounded-[40px] border border-white/5 animate-in zoom-in duration-300">
-            <h3 className="text-2xl font-bold text-white mb-8">Подключить платформу</h3>
-            <div className="space-y-4">
-              <select value={newAccPlatform} onChange={e => setNewAccPlatform(e.target.value as Platform)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none">
-                {Object.values(Platform).map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <input placeholder="Название" value={newAccName} onChange={e => setNewAccName(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
-              {newAccPlatform === Platform.TELEGRAM && (
-                <><input placeholder="Bot Token" value={newAccCreds.botToken} onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
-                  <input placeholder="Chat ID" value={newAccCreds.chatId} onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" /></>
-              )}
-              {newAccPlatform === Platform.VK && (
-                <><input placeholder="Токен" value={newAccCreds.accessToken} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
-                  <input placeholder="ID группы (с минусом)" value={newAccCreds.ownerId} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" /></>
-              )}
-              <div className="flex gap-4 mt-8">
-                <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
-                <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all">Подключить</button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
