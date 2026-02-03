@@ -52,8 +52,8 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
 
 async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string, previewOnly: boolean = false) {
   const token = accessToken.trim();
-  const rawGroupId = ownerId.trim().replace(/\D/g, '');
-  const targetId = `-${rawGroupId}`;
+  const rawGroupId = ownerId.trim().replace(/\D/g, ''); // Только цифры (положительный ID)
+  const targetId = `-${rawGroupId}`; // ID стены (отрицательный для групп)
   
   const vkPost = async (method: string, data: any) => {
     const fullParams = {
@@ -62,27 +62,23 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       v: '5.131'
     };
     
-    // Формируем красивый отчет для отладки
     const fullUrl = `https://api.vk.com/method/${method}`;
-    const debugInfo = {
-      method: method,
-      url: fullUrl,
-      params: { ...fullParams, access_token: '***' } // Прячем токен в логах для безопасности
-    };
-    const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify(debugInfo.params, null, 2)}`;
+    const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify({ ...fullParams, access_token: '***' }, null, 2)}`;
 
     if (previewOnly && method === 'wall.post') {
       const err = new Error("PREVIEW_MODE") as any;
       err.debugData = { 
         request: rawRequestString, 
-        response: "--- ПРЕДПРОСМОТР: ЗАПРОС СФОРМИРОВАН, НО НЕ ОТПРАВЛЕН ---" 
+        response: "--- РЕЖИМ ПРЕДПРОСМОТРА ---" 
       };
       throw err;
     }
 
     try {
       const params = new URLSearchParams();
-      for (const key in fullParams) params.append(key, fullParams[key]);
+      for (const key in fullParams) {
+        params.append(key, String(fullParams[key]));
+      }
 
       const response = await axios.post(fullUrl, params, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -113,31 +109,49 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
   try {
     let attachments = '';
     
-    if (image && !previewOnly) {
-      const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
-      const buffer = await getImageBuffer(image);
-      if (buffer) {
-        const form = new FormData();
-        form.append('photo', buffer, { filename: 'image.png' });
-        const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
-        const saved = await vkPost('photos.saveWallPhoto', {
-          group_id: rawGroupId,
-          photo: uploadRes.data.photo,
-          server: uploadRes.data.server,
-          hash: uploadRes.data.hash
-        });
-        if (saved?.length) attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
+    // Если есть картинка
+    if (image) {
+      if (!previewOnly) {
+        // 1. Получаем сервер
+        const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
+        
+        // 2. Загружаем файл
+        const buffer = await getImageBuffer(image);
+        if (buffer) {
+          const form = new FormData();
+          form.append('photo', buffer, { filename: 'image.png' });
+          const uploadRes = await axios.post(uploadServer.upload_url, form, { 
+            headers: form.getHeaders() 
+          });
+          
+          // 3. Сохраняем фото на стену
+          // Важно: параметры photo, server, hash возвращаются в теле ответа загрузки
+          const saved = await vkPost('photos.saveWallPhoto', {
+            group_id: rawGroupId,
+            photo: uploadRes.data.photo,
+            server: uploadRes.data.server,
+            hash: uploadRes.data.hash
+          });
+          
+          if (saved && saved.length > 0) {
+            attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
+          } else {
+            throw new Error("ВК не сохранил фотографию (пустой ответ)");
+          }
+        }
+      } else {
+        // Для превью симулируем вложение
+        attachments = `photo12345_67890`;
       }
-    } else if (image && previewOnly) {
-      attachments = `photo[ID_ПОЛЬЗОВАТЕЛЯ]_[ID_ФОТО]`;
     }
 
     const postData: any = {
       owner_id: targetId,
-      from_group: 1, // Передаем как число
+      from_group: 1,
       message: text || ''
     };
     
+    // ГАРАНТИРОВАННО добавляем attachments, если они сформированы
     if (attachments) {
       postData.attachments = attachments;
     }
@@ -170,7 +184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         results.push({ name: acc.name, status: 'success' });
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
         if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
-        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью (TG не поддерживает)' : undefined });
+        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью не поддерживается' : undefined });
       }
     } catch (e: any) {
       results.push({ 
