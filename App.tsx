@@ -127,13 +127,19 @@ const App: React.FC = () => {
   };
 
   const handleAddAccount = async () => {
+    let cleanChatId = newAccCreds.chatId.trim();
+    // Помогаем пользователю: если не число и нет @, добавляем @
+    if (newAccPlatform === Platform.TELEGRAM && !cleanChatId.startsWith('@') && !cleanChatId.startsWith('-') && isNaN(Number(cleanChatId))) {
+      cleanChatId = `@${cleanChatId}`;
+    }
+
     try {
       await addAccount({
         platform: newAccPlatform,
         name: newAccName,
         credentials: {
           botToken: newAccCreds.botToken.trim(),
-          chatId: newAccCreds.chatId.trim()
+          chatId: cleanChatId
         }
       });
       setShowAddAccount(false);
@@ -477,9 +483,12 @@ const App: React.FC = () => {
                                     {res.status === 'success' && <ExternalLink size={14} className="text-slate-600" />}
                                  </div>
                                  {res.status === 'failed' && res.error && (
-                                   <p className="text-[10px] text-red-400 font-medium pl-10 line-clamp-2 mt-1 italic">
-                                     {res.error}
-                                   </p>
+                                   <div className="pl-10 mt-1">
+                                      <p className="text-[10px] text-red-400 font-bold leading-tight uppercase mb-0.5">Ошибка:</p>
+                                      <p className="text-[10px] text-red-300/80 font-medium italic leading-relaxed">
+                                        {res.error}
+                                      </p>
+                                   </div>
                                  )}
                               </div>
                            ))}

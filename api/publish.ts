@@ -18,7 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { text, image, articleId } = req.body;
 
-  // Получаем активные интеграции пользователя
   const { data: accounts, error: accError } = await supabase
     .from('target_accounts')
     .select('*')
@@ -35,12 +34,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     try {
       if (account.platform === 'Telegram') {
-        // Очищаем токен и ID от возможных пробелов
         const botToken = account.credentials.botToken?.trim();
-        const chatId = account.credentials.chatId?.trim();
+        let chatId = account.credentials.chatId?.trim();
 
         if (!botToken || !chatId) {
           throw new Error('Bot Token or Chat ID is missing');
+        }
+
+        // Авто-нормализация Chat ID
+        // Если это не число и не начинается с @ или -, добавляем @
+        if (!chatId.startsWith('@') && !chatId.startsWith('-') && isNaN(Number(chatId))) {
+          chatId = `@${chatId}`;
         }
 
         const bot = new Telegraf(botToken);
@@ -49,7 +53,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const base64Data = image.split(',')[1];
           const buffer = Buffer.from(base64Data, 'base64');
           
-          // Caption limit is 1024 chars for photos
           if (text.length <= 1024) {
             await bot.telegram.sendPhoto(chatId, { source: buffer }, { caption: text });
           } else {
@@ -65,7 +68,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         errorMessage = `Platform ${account.platform} integration in progress`;
       }
 
-      // Log to history
       await supabase.from('posts_history').insert([{
         user_id: userId,
         article_id: articleId,
@@ -77,13 +79,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       results.push({ platform: account.platform, name: account.name, status, error: errorMessage });
     } catch (e: any) {
       console.error(`Publish error [${account.platform}]:`, e);
-      // Формируем понятное сообщение об ошибке
-      const cleanError = e.description || e.message || 'Unknown network error';
+      let cleanError = e.description || e.message || 'Unknown network error';
+      
+      // Специфическая подсказка для "chat not found"
+      if (cleanError.includes('chat not found')) {
+        cleanError += ". Проверьте, что ID канала верен (начинается с @) и бот добавлен в администраторы.";
+      }
+
       results.push({ 
         platform: account.platform, 
         name: account.name, 
         status: 'failed', 
-        error: `Telegram Error: ${cleanError}` 
+        error: cleanError 
       });
     }
   }
