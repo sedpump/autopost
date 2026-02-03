@@ -50,7 +50,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'keywords') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Проанализируй текст и создай ОДНО подробное описание (на английском языке) для генерации качественной картинки. Описание должно четко отражать суть и объекты текста. Текст: ${text}`,
+        contents: `Ты — арт-директор. Прочитай этот текст и создай ОДНО детальное описание для генерации ИДЕАЛЬНОЙ обложки к посту. 
+        Описание должно быть на английском, включать стиль (photorealistic, 3D render, digital art), освещение и ключевые объекты. 
+        Избегай текста на картинке.
+        Текст поста: ${text}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -59,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               keywords: { 
                 type: Type.ARRAY, 
                 items: { type: Type.STRING },
-                description: "Массив из одной строки с полным описанием сцены"
+                description: "Массив из одной строки с полным описанием визуальной сцены"
               }
             },
             required: ["keywords"]
@@ -74,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const response = await ai.models.generateContent({
           model: 'gemini-3-pro-image-preview',
           contents: { 
-            parts: [{ text: `Professional commercial visual concept, clean aesthetic, high-end photography/3D render: ${prompt}. Cinematic lighting, 8k, sharp details.` }] 
+            parts: [{ text: `High-quality social media content, professional aesthetics: ${prompt}. No text, no letters, cinematic, highly detailed.` }] 
           },
           config: { 
             imageConfig: { 

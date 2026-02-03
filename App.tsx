@@ -29,7 +29,8 @@ import {
   Sparkles,
   Info,
   HelpCircle,
-  ShieldAlert
+  ShieldAlert,
+  Key
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -185,12 +186,12 @@ const App: React.FC = () => {
     setIsProcessing(true);
     try {
       const variants = await rewriteArticle(article.originalText);
+      // Используем первый вариант для генерации картинки (он обычно самый качественный)
       let imageUrl = '';
       try {
-        const keywords = await extractKeyConcepts(article.originalText);
-        if (keywords.length > 0) {
-          // keywords[0] теперь содержит полное описание сцены
-          imageUrl = await generateImageForArticle(keywords[0]);
+        const visualPromptData = await extractKeyConcepts(variants[0].content);
+        if (visualPromptData.length > 0) {
+          imageUrl = await generateImageForArticle(visualPromptData[0]);
         }
       } catch (imgError) {
         console.warn("Ошибка генерации изображения", imgError);
@@ -475,12 +476,22 @@ const App: React.FC = () => {
 
                       {newAccPlatform === Platform.VK && (
                         <>
-                          <input 
-                            placeholder="VK Access Token"
-                            value={newAccCreds.accessToken}
-                            onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
-                          />
+                          <div className="space-y-2">
+                             <input 
+                               placeholder="VK Access Token"
+                               value={newAccCreds.accessToken}
+                               onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})}
+                               className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
+                             />
+                             <a 
+                                href="https://vkhost.github.io/" 
+                                target="_blank" 
+                                className="flex items-center gap-1.5 text-[10px] text-indigo-400 font-black uppercase hover:underline px-2"
+                             >
+                                <Key size={12} /> Получить токен (выбирайте Kate Mobile)
+                             </a>
+                          </div>
+
                           <div className="space-y-2">
                              <input 
                                placeholder="Цифровой Owner ID (напр. -12345678)"
@@ -492,10 +503,9 @@ const App: React.FC = () => {
                                 <div className="flex items-start gap-2">
                                    <ShieldAlert size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
                                    <div className="text-[10px] text-slate-400 leading-tight">
-                                      <p className="font-bold text-amber-500 mb-1 uppercase">Важно для групп:</p>
-                                      Если ID начинается с <b>минуса</b>, ваш токен ДОЛЖЕН принадлежать <b>администратору</b> этой группы.
+                                      Если вы получили ошибку <b>Код 5</b> — ваш токен невалиден или просрочен.
                                       <br/><br/>
-                                      Убедитесь, что в настройках приложения ВК разрешен доступ к <b>wall</b> и <b>offline</b>.
+                                      Нужен <b>Токен пользователя</b> ( Kate Mobile подходит лучше всего). Убедитесь, что разрешены <b>wall</b> и <b>offline</b>.
                                    </div>
                                 </div>
                              </div>

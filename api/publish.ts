@@ -11,7 +11,6 @@ const supabase = createClient(
 );
 
 async function publishToVK(accessToken: string, ownerId: string, message: string) {
-  // Очищаем ID от буквенных префиксов, сохраняя минус если он есть
   const rawId = ownerId.trim().toLowerCase()
     .replace('id', '')
     .replace('club', '')
@@ -20,33 +19,38 @@ async function publishToVK(accessToken: string, ownerId: string, message: string
   const numericOwnerId = parseInt(rawId, 10);
 
   if (isNaN(numericOwnerId)) {
-    throw new Error('Owner ID должен быть числом (например, 12345 или -12345).');
+    throw new Error('Owner ID должен быть числом.');
   }
 
+  const isGroup = numericOwnerId < 0;
   const url = `https://api.vk.com/method/wall.post`;
   
-  // Если numericOwnerId отрицательный — это группа. 
-  // Для групп ОБЯЗАТЕЛЬНО нужен from_group: 1, иначе будет ошибка доступа.
-  const isGroup = numericOwnerId < 0;
-
-  const response = await axios.post(url, null, {
-    params: {
-      access_token: accessToken,
-      owner_id: numericOwnerId,
-      from_group: isGroup ? 1 : 0, // Постить от имени сообщества
-      message: message,
-      v: '5.131'
+  try {
+    const response = await axios.post(url, null, {
+      params: {
+        access_token: accessToken,
+        owner_id: numericOwnerId,
+        from_group: isGroup ? 1 : 0,
+        message: message,
+        v: '5.131'
+      }
+    });
+    
+    if (response.data.error) {
+      const err = response.data.error;
+      if (err.error_code === 5) {
+        throw new Error('Неверный токен ВК. Убедитесь, что вы используете "Токен пользователя" или "Токен сообщества" с правами wall и offline.');
+      }
+      if (err.error_code === 15 || err.error_msg.includes('denied')) {
+        throw new Error('Доступ запрещен. Убедитесь, что у токена есть права "wall" и вы являетесь администратором группы.');
+      }
+      throw new Error(`Ошибка ВК: ${err.error_msg}`);
     }
-  });
-  
-  if (response.data.error) {
-    const err = response.data.error;
-    if (err.error_code === 15) {
-      throw new Error('Доступ закрыт. Убедитесь, что у токена есть права на стену и включен параметр "от имени сообщества".');
-    }
-    throw new Error(`Ошибка ВК: ${err.error_msg} (Код: ${err.error_code})`);
+    return response.data;
+  } catch (e: any) {
+    if (e.message.includes('ВК')) throw e;
+    throw new Error(`Ошибка сети при связи с ВК: ${e.message}`);
   }
-  return response.data;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
