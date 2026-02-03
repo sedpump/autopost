@@ -39,7 +39,7 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
 }
 
 /**
- * Чистая функция отправки в Telegram через Axios.
+ * Публикация в Telegram.
  */
 async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
   const cleanToken = token.trim();
@@ -53,8 +53,6 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
         const form = new FormData();
         form.append('chat_id', cleanChatId);
         form.append('photo', buffer, { filename: 'post.png' });
-        
-        // Лимит 1024 для подписи к фото
         const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
         form.append('caption', caption);
 
@@ -63,26 +61,79 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
           timeout: 40000
         });
 
-        // Если текст длинный, досылаем остаток вторым сообщением
         if (text.length > 1024) {
-          await axios.post(`${botApiUrl}/sendMessage`, {
-            chat_id: cleanChatId,
-            text: text
-          });
+          await axios.post(`${botApiUrl}/sendMessage`, { chat_id: cleanChatId, text: text });
         }
         return;
       }
     }
-
-    // Если нет картинки или она не загрузилась — шлем чистый текст
-    await axios.post(`${botApiUrl}/sendMessage`, {
-      chat_id: cleanChatId,
-      text: text
-    });
-
+    await axios.post(`${botApiUrl}/sendMessage`, { chat_id: cleanChatId, text: text });
   } catch (e: any) {
     const tgError = e.response?.data?.description || e.message;
     throw new Error(`Telegram: ${tgError}`);
+  }
+}
+
+/**
+ * Публикация во ВКонтакте (через API wall.post).
+ */
+async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string) {
+  const token = accessToken.trim();
+  // VK требует, чтобы ID группы был отрицательным
+  let targetId = ownerId.trim();
+  if (!targetId.startsWith('-') && targetId.length > 5) {
+    targetId = `-${targetId}`;
+  }
+  
+  const vkApi = (method: string, params: any) => 
+    axios.get(`https://api.vk.com/method/${method}`, {
+      params: { ...params, access_token: token, v: '5.131' }
+    });
+
+  try {
+    let attachments = '';
+
+    if (image) {
+      const buffer = await getImageBuffer(image);
+      if (buffer) {
+        // 1. Получаем сервер для загрузки
+        const uploadServerRes = await vkApi('photos.getWallUploadServer', {
+          group_id: Math.abs(parseInt(targetId))
+        });
+        
+        if (uploadServerRes.data.error) throw new Error(uploadServerRes.data.error.error_msg);
+        const uploadUrl = uploadServerRes.data.response.upload_url;
+
+        // 2. Загружаем файл
+        const form = new FormData();
+        form.append('photo', buffer, { filename: 'image.png' });
+        const uploadRes = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
+
+        // 3. Сохраняем фото
+        const saveRes = await vkApi('photos.saveWallPhoto', {
+          group_id: Math.abs(parseInt(targetId)),
+          photo: uploadRes.data.photo,
+          server: uploadRes.data.server,
+          hash: uploadRes.data.hash
+        });
+
+        if (saveRes.data.error) throw new Error(saveRes.data.error.error_msg);
+        const photo = saveRes.data.response[0];
+        attachments = `photo${photo.owner_id}_${photo.id}`;
+      }
+    }
+
+    // 4. Публикуем пост
+    const postRes = await vkApi('wall.post', {
+      owner_id: targetId,
+      message: text,
+      attachments: attachments
+    });
+
+    if (postRes.data.error) throw new Error(postRes.data.error.error_msg);
+
+  } catch (e: any) {
+    throw new Error(`VK: ${e.message}`);
   }
 }
 
@@ -106,15 +157,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   for (const acc of accounts) {
     try {
       if (acc.platform === 'Telegram') {
-        await publishToTelegram(
-          acc.credentials.botToken, 
-          acc.credentials.chatId, 
-          text, 
-          image
-        );
+        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
+        results.push({ name: acc.name, status: 'success' });
+      } else if (acc.platform === 'VK') {
+        await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image);
         results.push({ name: acc.name, status: 'success' });
       } else {
-        results.push({ name: acc.name, status: 'idle', note: 'Focus on Telegram' });
+        results.push({ name: acc.name, status: 'failed', error: 'Платформа пока в разработке' });
       }
     } catch (e: any) {
       results.push({ name: acc.name, status: 'failed', error: e.message });
