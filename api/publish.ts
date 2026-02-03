@@ -11,7 +11,7 @@ const supabase = createClient(
 );
 
 /**
- * Получение буфера изображения с имитацией браузера.
+ * Получение буфера изображения.
  */
 async function getImageBuffer(imageData: string): Promise<Buffer | null> {
   if (!imageData) return null;
@@ -23,10 +23,9 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
     if (imageData.startsWith('http')) {
       const response = await axios.get(imageData, { 
         responseType: 'arraybuffer',
-        timeout: 15000,
+        timeout: 10000,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
       });
       return Buffer.from(response.data);
@@ -42,9 +41,8 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
  * Публикация в Telegram.
  */
 async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
-  const cleanToken = token.trim();
+  const botApiUrl = `https://api.telegram.org/bot${token.trim()}`;
   const cleanChatId = chatId.trim();
-  const botApiUrl = `https://api.telegram.org/bot${cleanToken}`;
 
   try {
     if (image) {
@@ -58,7 +56,7 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
 
         await axios.post(`${botApiUrl}/sendPhoto`, form, {
           headers: form.getHeaders(),
-          timeout: 40000
+          timeout: 30000
         });
 
         if (text.length > 1024) {
@@ -75,20 +73,36 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
 }
 
 /**
- * Публикация во ВКонтакте (через API wall.post).
+ * Публикация во ВКонтакте (через POST и URLSearchParams).
  */
 async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string) {
   const token = accessToken.trim();
-  // VK требует, чтобы ID группы был отрицательным
   let targetId = ownerId.trim();
-  if (!targetId.startsWith('-') && targetId.length > 5) {
+  
+  // VK требует, чтобы ID группы был отрицательным для owner_id
+  if (!targetId.startsWith('-')) {
     targetId = `-${targetId}`;
   }
   
-  const vkApi = (method: string, params: any) => 
-    axios.get(`https://api.vk.com/method/${method}`, {
-      params: { ...params, access_token: token, v: '5.131' }
+  const vkPost = async (method: string, data: any) => {
+    const params = new URLSearchParams();
+    for (const key in data) {
+      params.append(key, data[key]);
+    }
+    params.append('access_token', token);
+    params.append('v', '5.131');
+    
+    const response = await axios.post(`https://api.vk.com/method/${method}`, params, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 20000
     });
+    
+    if (response.data.error) {
+      const { error_code, error_msg } = response.data.error;
+      throw new Error(`VK Error ${error_code}: ${error_msg}`);
+    }
+    return response.data.response;
+  };
 
   try {
     let attachments = '';
@@ -96,44 +110,44 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     if (image) {
       const buffer = await getImageBuffer(image);
       if (buffer) {
-        // 1. Получаем сервер для загрузки
-        const uploadServerRes = await vkApi('photos.getWallUploadServer', {
+        // 1. Получаем сервер
+        const uploadServer = await vkPost('photos.getWallUploadServer', {
           group_id: Math.abs(parseInt(targetId))
         });
         
-        if (uploadServerRes.data.error) throw new Error(uploadServerRes.data.error.error_msg);
-        const uploadUrl = uploadServerRes.data.response.upload_url;
-
         // 2. Загружаем файл
         const form = new FormData();
         form.append('photo', buffer, { filename: 'image.png' });
-        const uploadRes = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
+        const uploadRes = await axios.post(uploadServer.upload_url, form, { 
+          headers: form.getHeaders(),
+          timeout: 20000 
+        });
 
         // 3. Сохраняем фото
-        const saveRes = await vkApi('photos.saveWallPhoto', {
+        const savedPhotos = await vkPost('photos.saveWallPhoto', {
           group_id: Math.abs(parseInt(targetId)),
           photo: uploadRes.data.photo,
           server: uploadRes.data.server,
           hash: uploadRes.data.hash
         });
 
-        if (saveRes.data.error) throw new Error(saveRes.data.error.error_msg);
-        const photo = saveRes.data.response[0];
-        attachments = `photo${photo.owner_id}_${photo.id}`;
+        if (savedPhotos && savedPhotos.length > 0) {
+          const photo = savedPhotos[0];
+          attachments = `photo${photo.owner_id}_${photo.id}`;
+        }
       }
     }
 
-    // 4. Публикуем пост
-    const postRes = await vkApi('wall.post', {
+    // 4. Публикуем пост (обязательно с from_group: 1)
+    await vkPost('wall.post', {
       owner_id: targetId,
+      from_group: 1,
       message: text,
       attachments: attachments
     });
 
-    if (postRes.data.error) throw new Error(postRes.data.error.error_msg);
-
   } catch (e: any) {
-    throw new Error(`VK: ${e.message}`);
+    throw new Error(e.message);
   }
 }
 
@@ -154,6 +168,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!accounts || accounts.length === 0) return res.json({ results: [] });
 
   const results = [];
+  // Обрабатываем последовательно, чтобы избежать Race Condition и лимитов API
   for (const acc of accounts) {
     try {
       if (acc.platform === 'Telegram') {
@@ -166,6 +181,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         results.push({ name: acc.name, status: 'failed', error: 'Платформа пока в разработке' });
       }
     } catch (e: any) {
+      console.error(`Error publishing to ${acc.name}:`, e.message);
       results.push({ name: acc.name, status: 'failed', error: e.message });
     }
   }
