@@ -1,71 +1,58 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_ANON_KEY || ''
+);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') return res.status(405).send('Method Not Allowed');
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+  const userId = auth.replace('Bearer ', '');
 
-  const sourcesStr = (req.query.sources as string) || '';
-  const requestedSources = sourcesStr.split(',').filter(Boolean).map(s => s.trim().replace('@', ''));
+  // 1. Достаем источники пользователя из БД
+  const { data: sources, error } = await supabase
+    .from('sources')
+    .select('url')
+    .eq('user_id', userId)
+    .eq('is_active', true);
 
-  if (requestedSources.length === 0) {
-    return res.status(200).json([]);
+  if (error || !sources || sources.length === 0) {
+    return res.status(200).json([]); // Нет источников — нет статей
   }
 
+  const requestedSources = sources.map(s => s.url);
   const allArticles: any[] = [];
 
+  // 2. Парсим каждый канал
   for (const username of requestedSources) {
     try {
-      // Telegram предоставляет публичное веб-превью по адресу t.me/s/username
-      const url = `https://t.me/s/${username}`;
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-      });
-
+      const url = `https://t.me/s/${username.replace('@', '')}`;
+      const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const html = response.data;
       
-      // Очень простой парсинг через регулярки (в идеале использовать cheerio, но для легкости функций обойдемся так)
-      // Ищем блоки сообщений
       const messageRegex = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/g;
-      const timeRegex = /<time[^>]*datetime="([^"]*)"[^>]*>/;
-      
-      let match;
-      let count = 0;
-      
-      // Забираем последние 5 сообщений из каждого канала
-      const matches = Array.from(html.matchAll(messageRegex)).reverse().slice(0, 5);
+      const matches = Array.from(html.matchAll(messageRegex)).reverse().slice(0, 3);
 
       for (const m of matches) {
-        let text = m[1]
-          .replace(/<br\s*\/?>/gi, '\n') // сохраняем переносы строк
-          .replace(/<[^>]+>/g, '') // удаляем остальные теги
-          .trim();
-
+        let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
         if (text) {
           allArticles.push({
-            id: `${username}_${Date.now()}_${count++}`,
-            source: `@${username}`,
+            id: Math.random().toString(36).substr(2, 9),
+            source: username,
             originalText: text,
-            timestamp: new Date().toLocaleTimeString(), // В реальности можно парсить из timeRegex
+            timestamp: 'Just now',
             status: 'pending'
           });
         }
       }
-    } catch (error: any) {
-      console.error(`Error scraping channel ${username}:`, error.message);
-      // Добавляем уведомление об ошибке в ленту для наглядности
-      allArticles.push({
-        id: `error_${username}`,
-        source: 'System',
-        originalText: `Не удалось загрузить посты из @${username}. Возможно, канал приватный или указан неверно.`,
-        timestamp: new Date().toLocaleTimeString(),
-        status: 'error'
-      });
+    } catch (e) {
+      console.error(`Failed to parse ${username}`, e);
     }
   }
 
-  // Сортируем (условно) и отдаем
   return res.status(200).json(allArticles);
 }

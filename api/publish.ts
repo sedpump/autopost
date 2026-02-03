@@ -1,45 +1,66 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_ANON_KEY || ''
+);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+  
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+  const userId = auth.replace('Bearer ', '');
 
-  const { text, image, platforms } = req.body;
-  const results: any[] = [];
+  const { text, image, articleId } = req.body;
 
-  for (const platform of platforms) {
+  // 1. Получаем все активные аккаунты пользователя из БД
+  const { data: accounts, error: accError } = await supabase
+    .from('target_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+
+  if (accError || !accounts) return res.status(500).json({ error: 'Failed to fetch target accounts' });
+
+  const results = [];
+
+  // 2. Рассылаем по каждой платформе
+  for (const account of accounts) {
+    let status = 'failed';
+    let link = '';
+    
     try {
-      if (platform === 'Telegram') {
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        const chatId = process.env.TELEGRAM_DESTINATION_ID || process.env.TELEGRAM_CHANNEL_ID;
-
-        if (botToken && chatId) {
-          // Если есть картинка, отправляем как фото с подписью
-          if (image && image.startsWith('data:image')) {
-            // В продакшене лучше сначала загрузить картинку на хостинг, 
-            // но Telegram принимает и base64/файлы. Для примера шлем текст.
-            await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-              chat_id: chatId,
-              text: `📸 [Image Generated]\n\n${text}`
-            });
-          } else {
-            await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-              chat_id: chatId,
-              text: text
-            });
-          }
-          results.push({ platform, status: 'success' });
-        } else {
-          throw new Error('Telegram credentials missing');
-        }
+      if (account.platform === 'Telegram') {
+        const { botToken, chatId } = account.credentials;
+        const msg = image ? `📸 [Image Content]\n\n${text}` : text;
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          chat_id: chatId,
+          text: msg
+        });
+        status = 'success';
       } 
+      // Тут будут блоки else if для VK, Dzen и т.д.
       else {
-        // Для VK/Dzen и т.д. логика аналогична через их API
-        results.push({ platform, status: 'simulated', message: `${platform} API integration coming soon` });
+        // Симуляция для остальных
+        status = 'simulated';
       }
-    } catch (error: any) {
-      results.push({ platform, status: 'failed', error: error.message });
+
+      // 3. Записываем в лог
+      await supabase.from('posts_history').insert([{
+        user_id: userId,
+        article_id: articleId,
+        platform: account.platform,
+        status: status,
+        external_link: link
+      }]);
+
+      results.push({ platform: account.platform, name: account.name, status });
+    } catch (e: any) {
+      results.push({ platform: account.platform, name: account.name, status: 'failed', error: e.message });
     }
   }
 

@@ -1,15 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  LayoutDashboard, 
   Inbox, 
   Settings as SettingsIcon, 
   CheckCircle, 
   XCircle, 
   Loader2,
-  RefreshCw,
   Share2,
-  MessageSquare,
   Link2,
   UserCheck,
   Radio,
@@ -18,118 +15,103 @@ import {
   Server,
   Rocket,
   Zap,
-  Download,
-  Upload,
-  Database
+  Lock,
+  LogOut,
+  ChevronRight,
+  Globe,
+  Send
 } from 'lucide-react';
-import { Platform, Article, PostingStatus, Source, Account } from './types';
+import { Platform, Article, PostingStatus, Source, Account, User } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
-import { postToPlatforms, fetchInbox } from './apiService';
-
-const INITIAL_ACCOUNTS: Account[] = [
-  { id: 'a1', platform: Platform.TELEGRAM, username: 'Connected Bot', status: 'connected', lastPostDate: 'Active' },
-  { id: 'a2', platform: Platform.VK, username: 'Pending Config', status: 'expired', lastPostDate: '-' },
-];
-
-const SidebarItem: React.FC<{ icon: React.ReactNode; label: string; active: boolean; onClick: () => void; }> = ({ icon, label, active, onClick }) => (
-  <button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${active ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
-    {icon} <span className="font-medium">{label}</span>
-  </button>
-);
+import { 
+  login, 
+  fetchInbox, 
+  fetchSources, 
+  addSource, 
+  deleteSource, 
+  postToPlatforms,
+  fetchAccounts,
+  addAccount,
+  deleteAccount
+} from './apiService';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inbox' | 'sources' | 'accounts' | 'settings'>('inbox');
-  
-  // Лента постов (Inbound Feed) теперь тоже кэшируется
-  const [articles, setArticles] = useState<Article[]>(() => {
-    const saved = localStorage.getItem('omni_articles');
-    return saved ? JSON.parse(saved) : [];
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('omni_user');
+    return saved ? JSON.parse(saved) : null;
   });
   
-  const [sources, setSources] = useState<Source[]>(() => {
-    const saved = localStorage.getItem('omni_sources');
-    return saved ? JSON.parse(saved) : [
-        { id: '1', name: 'Default Channel', url: '@durov', type: 'channel', isActive: true }
-    ];
-  });
+  const [activeTab, setActiveTab] = useState<'inbox' | 'sources' | 'accounts' | 'settings'>('inbox');
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [newSourceUrl, setNewSourceUrl] = useState('');
-
-  const [accounts] = useState<Account[]>(INITIAL_ACCOUNTS);
-  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-  const [postingProgress, setPostingProgress] = useState<PostingStatus[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  
+  // Account Form State
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
+  const [newAccName, setNewAccName] = useState('');
+  const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '' });
 
-  // Сохраняем источники и статьи при изменениях
+  // Auth Form State
+  const [username, setUsername] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
   useEffect(() => {
-    localStorage.setItem('omni_sources', JSON.stringify(sources));
-  }, [sources]);
+    if (user) {
+      localStorage.setItem('omni_user', JSON.stringify(user));
+      refreshData();
+    }
+  }, [user]);
 
-  useEffect(() => {
-    localStorage.setItem('omni_articles', JSON.stringify(articles));
-  }, [articles]);
-
-  const loadInbox = async () => {
+  const refreshData = async () => {
+    if (!user) return;
     setIsFetching(true);
     try {
-        const channelUrls = sources.filter(s => s.isActive).map(s => s.url);
-        const newData = await fetchInbox(channelUrls);
-        
-        // Сливаем старые статьи с новыми, избегая дубликатов по тексту
-        setArticles(prev => {
-            const existingTexts = new Set(prev.map(a => a.originalText.slice(0, 50)));
-            const filteredNew = newData.filter((a: any) => !existingTexts.has(a.originalText.slice(0, 50)));
-            return [...filteredNew, ...prev].slice(0, 50); // Храним только последние 50
-        });
+      const [newArticles, newSources, newAccounts] = await Promise.all([
+        fetchInbox(), 
+        fetchSources(),
+        fetchAccounts()
+      ]);
+      setArticles(newArticles);
+      setSources(newSources);
+      setAccounts(newAccounts);
     } catch (e) {
-        console.error(e);
+      console.error(e);
     } finally {
-        setIsFetching(false);
+      setIsFetching(false);
     }
   };
 
-  const exportConfig = () => {
-    const config = { sources, articles };
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `omnipost_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim()) return;
+    setAuthLoading(true);
+    try {
+      const userData = await login(username);
+      setUser(userData);
+    } catch (e) {
+      alert("Login failed");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const importConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (data.sources) setSources(data.sources);
-        if (data.articles) setArticles(data.articles);
-        alert('Config imported successfully!');
-      } catch (err) {
-        alert('Invalid config file');
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const addSource = () => {
-    if (!newSourceUrl.trim()) return;
-    const newSource: Source = {
-        id: Date.now().toString(),
-        name: newSourceUrl.replace('@', ''),
-        url: newSourceUrl.startsWith('@') ? newSourceUrl : `@${newSourceUrl}`,
-        type: 'channel',
-        isActive: true
-    };
-    setSources([...sources, newSource]);
-    setNewSourceUrl('');
-  };
-
-  const removeSource = (id: string) => {
-    setSources(sources.filter(s => s.id !== id));
+  const handleAddAccount = async () => {
+    try {
+      await addAccount({
+        platform: newAccPlatform,
+        name: newAccName,
+        credentials: newAccCreds
+      });
+      setShowAddAccount(false);
+      refreshData();
+    } catch (e) {
+      alert("Error adding account");
+    }
   };
 
   const handleApprove = async (article: Article) => {
@@ -144,7 +126,6 @@ const App: React.FC = () => {
         status: 'approved',
         rewrittenText: rewritten,
         generatedImageUrl: imageUrl,
-        platforms: accounts.filter(acc => acc.status === 'connected').map(acc => acc.platform)
       };
 
       setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
@@ -156,24 +137,36 @@ const App: React.FC = () => {
     }
   };
 
-  const deployContent = async () => {
-    if (!selectedArticle) return;
-    const targetPlatforms = selectedArticle.platforms || [];
-    setPostingProgress(targetPlatforms.map(p => ({ platform: p, status: 'uploading' })));
-
-    try {
-      await postToPlatforms(selectedArticle, targetPlatforms);
-      setPostingProgress(targetPlatforms.map(p => ({ platform: p, status: 'success' })));
-      setArticles(prev => prev.map(a => a.id === selectedArticle.id ? { ...a, status: 'posted' } : a));
-      setTimeout(() => {
-        setSelectedArticle(null);
-        setPostingProgress([]);
-      }, 2000);
-    } catch (e: any) {
-      alert("Publishing Error: " + e.message);
-      setPostingProgress(targetPlatforms.map(p => ({ platform: p, status: 'failed' })));
-    }
-  };
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="max-w-md w-full glass p-10 rounded-[40px] border border-white/5 shadow-2xl animate-in fade-in zoom-in duration-500">
+          <div className="flex flex-col items-center mb-10">
+            <div className="bg-indigo-600 p-4 rounded-3xl shadow-lg shadow-indigo-600/30 mb-6">
+              <Lock className="text-white w-8 h-8" />
+            </div>
+            <h1 className="text-3xl font-black text-white mb-2">OmniPost AI</h1>
+            <p className="text-slate-400 text-center">Cloud Content Distribution System</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input 
+              type="text" 
+              placeholder="Username" 
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl px-6 py-4 focus:border-indigo-500 focus:outline-none text-white"
+            />
+            <button 
+              disabled={authLoading}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 py-4 rounded-2xl font-bold text-white transition-all flex items-center justify-center gap-2"
+            >
+              {authLoading ? <Loader2 className="animate-spin" /> : "Sign In"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-200">
@@ -181,202 +174,183 @@ const App: React.FC = () => {
         <div className="flex items-center space-x-3 px-2">
           <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-500/20"><Radio className="w-6 h-6 text-white" /></div>
           <div>
-            <h1 className="text-xl font-black tracking-tight leading-none">OmniPost</h1>
-            <span className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase italic">On-Demand AI</span>
+            <h1 className="text-xl font-black tracking-tight leading-none text-white">OmniPost</h1>
+            <span className="text-[10px] text-indigo-400 font-bold tracking-widest uppercase">{user.username}</span>
           </div>
         </div>
+        
         <nav className="flex-1 space-y-1.5">
-          <SidebarItem icon={<Inbox size={20} />} label="Inbound Feed" active={activeTab === 'inbox'} onClick={() => setActiveTab('inbox')} />
-          <SidebarItem icon={<Link2 size={20} />} label="Sources" active={activeTab === 'sources'} onClick={() => setActiveTab('sources')} />
-          <SidebarItem icon={<UserCheck size={20} />} label="Accounts" active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')} />
-          <SidebarItem icon={<SettingsIcon size={20} />} label="Config" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          <button onClick={() => setActiveTab('inbox')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inbox' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Inbox size={20} /> <span className="font-medium">Inbound Feed</span>
+          </button>
+          <button onClick={() => setActiveTab('sources')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sources' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Link2 size={20} /> <span className="font-medium">Cloud Sources</span>
+          </button>
+          <button onClick={() => setActiveTab('accounts')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'accounts' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <UserCheck size={20} /> <span className="font-medium">Integrations</span>
+          </button>
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <SettingsIcon size={20} /> <span className="font-medium">System Settings</span>
+          </button>
         </nav>
-        <button 
-            onClick={loadInbox} 
-            disabled={isFetching}
-            className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 transition-all flex items-center justify-center gap-2 text-xs font-bold text-indigo-400"
-        >
-           {isFetching ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-           Scan {sources.length} Channels
+
+        <button onClick={() => setUser(null)} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-400/5 transition-all">
+          <LogOut size={20} /> <span className="font-medium">Sign Out</span>
         </button>
       </aside>
 
       <main className="flex-1 overflow-y-auto relative">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
-          <h2 className="text-lg font-bold tracking-tight text-white capitalize">{activeTab}</h2>
-          <div className="flex items-center gap-4">
-             <div className="text-[10px] font-bold text-slate-400 bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
-               {sources.length} Channels Tracked
-             </div>
-             <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-xl shadow-indigo-600/20">A</div>
-          </div>
+          <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
+          <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20">SYNC NOW</button>
         </header>
 
         <div className="p-10 max-w-7xl mx-auto">
           {activeTab === 'inbox' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {articles.map(article => (
-                <div key={article.id} className={`glass p-8 rounded-[32px] border transition-all group ${article.status === 'posted' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800/50 hover:border-indigo-500/30'}`}>
+                <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full">
                   <div className="flex justify-between items-center mb-6">
-                    <span className="text-[10px] font-black tracking-widest text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg border border-indigo-500/10">{article.source}</span>
-                    <span className="text-[10px] text-slate-600 font-mono">
-                        {article.status === 'posted' ? <span className="text-emerald-500 flex items-center gap-1"><CheckCircle size={10} /> POSTED</span> : article.timestamp}
-                    </span>
+                    <span className="text-[10px] font-black text-indigo-400 uppercase bg-indigo-500/5 px-2 py-1 rounded-lg">{article.source}</span>
                   </div>
-                  <p className="text-slate-300 text-sm leading-relaxed mb-8 line-clamp-4">{article.originalText}</p>
-                  <button 
-                    onClick={() => handleApprove(article)} 
-                    disabled={article.status === 'posted'}
-                    className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <Rocket size={16} /> {article.status === 'posted' ? 'Published' : 'Process with AI'}
+                  <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1">{article.originalText}</p>
+                  <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2">
+                    <Zap size={16} /> Process with AI
                   </button>
                 </div>
               ))}
-              {articles.length === 0 && !isFetching && (
-                <div className="col-span-full py-20 text-center opacity-40">
-                    <Inbox size={48} className="mx-auto mb-4" />
-                    <p>Inbox is empty. Add channels in "Sources" tab and press "Scan".</p>
+            </div>
+          )}
+
+          {activeTab === 'accounts' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="text-2xl font-bold text-white">Target Integrations</h3>
+                  <p className="text-slate-500 text-sm">Where your content will be automatically published</p>
+                </div>
+                <button 
+                  onClick={() => setShowAddAccount(true)}
+                  className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  <Plus size={20} /> Connect Platform
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {accounts.map(acc => (
+                  <div key={acc.id} className="glass p-6 rounded-3xl border border-slate-800 flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400">
+                        <Globe size={20} />
+                      </div>
+                      <button onClick={() => deleteAccount(acc.id)} className="text-slate-600 hover:text-red-400 transition-all p-2"><Trash2 size={16}/></button>
+                    </div>
+                    <h4 className="font-bold text-white text-lg">{acc.name || 'Unnamed Account'}</h4>
+                    <p className="text-slate-500 text-xs mb-4 uppercase tracking-widest font-bold">{acc.platform}</p>
+                    <div className="mt-auto flex items-center gap-2 text-emerald-500 text-[10px] font-bold uppercase">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                      Online & Ready
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {showAddAccount && (
+                <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
+                  <div className="glass w-full max-w-md p-10 rounded-[40px] border border-white/5">
+                    <h3 className="text-2xl font-bold text-white mb-8">Connect New Platform</h3>
+                    <div className="space-y-4">
+                      <select 
+                        value={newAccPlatform}
+                        onChange={e => setNewAccPlatform(e.target.value as Platform)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                      >
+                        {Object.values(Platform).map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                      <input 
+                        placeholder="Friendly Name (e.g. My Telegram Channel)"
+                        value={newAccName}
+                        onChange={e => setNewAccName(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                      />
+                      {newAccPlatform === Platform.TELEGRAM && (
+                        <>
+                          <input 
+                            placeholder="Bot Token (from @BotFather)"
+                            value={newAccCreds.botToken}
+                            onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                          />
+                          <input 
+                            placeholder="Chat/Channel ID (e.g. @mychannel)"
+                            value={newAccCreds.chatId}
+                            onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none"
+                          />
+                        </>
+                      )}
+                      <div className="flex gap-4 mt-8">
+                        <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Cancel</button>
+                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all">Save Account</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {activeTab === 'sources' && (
-            <div className="max-w-3xl mx-auto space-y-6">
-                <div className="glass p-8 rounded-[32px] border border-slate-800 flex gap-4">
-                    <input 
-                        value={newSourceUrl}
-                        onChange={(e) => setNewSourceUrl(e.target.value)}
-                        className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 focus:border-indigo-500 focus:outline-none"
-                        placeholder="Enter channel @username..."
-                        onKeyDown={(e) => e.key === 'Enter' && addSource()}
-                    />
-                    <button 
-                        onClick={addSource}
-                        className="bg-indigo-600 px-8 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-500 transition-all"
-                    >
-                        <Plus size={20} /> Add
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                    {sources.map(source => (
-                        <div key={source.id} className="glass p-6 rounded-2xl border border-slate-800 flex items-center justify-between group hover:border-slate-700 transition-all">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-indigo-400">
-                                    <Radio size={24} />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white">{source.name}</h4>
-                                    <p className="text-xs text-slate-500">{source.url}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full uppercase">Monitoring</span>
-                                <button 
-                                    onClick={() => removeSource(source.id)}
-                                    className="p-3 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"
-                                >
-                                    <Trash2 size={18} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-          )}
-
-          {activeTab === 'settings' && (
-            <div className="max-w-2xl mx-auto space-y-8">
-                <div className="glass p-12 rounded-[40px] border border-slate-800 space-y-8">
-                    <h3 className="text-xl font-bold flex items-center gap-3"><Server className="text-indigo-500" /> Infrastructure</h3>
-                    <div className="space-y-4">
-                        <div className="text-xs text-slate-500 leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800">
-                            <b>LocalStorage Persistence:</b> Your sources and articles are saved in your browser. They won't be lost when you redeploy. <br/><br/>
-                            <b>Vercel Environment:</b> Ensure <code>API_KEY</code> and <code>TELEGRAM_BOT_TOKEN</code> are set in Vercel Dashboard.
-                        </div>
-                    </div>
-                </div>
-
-                <div className="glass p-12 rounded-[40px] border border-slate-800 space-y-8">
-                    <h3 className="text-xl font-bold flex items-center gap-3"><Database className="text-indigo-500" /> Data Management</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        <button 
-                            onClick={exportConfig}
-                            className="flex items-center justify-center gap-2 p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition-all font-bold"
-                        >
-                            <Download size={20} className="text-indigo-400" />
-                            Export Backup
-                        </button>
-                        <label className="flex items-center justify-center gap-2 p-6 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition-all font-bold cursor-pointer">
-                            <Upload size={20} className="text-indigo-400" />
-                            Import Backup
-                            <input type="file" className="hidden" accept=".json" onChange={importConfig} />
-                        </label>
-                    </div>
-                </div>
             </div>
           )}
         </div>
       </main>
 
-      {/* Preview Modal */}
-      {selectedArticle && !isProcessing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl">
-           <div className="glass w-full max-w-5xl max-h-[90vh] rounded-[40px] border border-white/5 overflow-hidden flex shadow-2xl">
-              <div className="w-2/3 p-12 overflow-y-auto border-r border-slate-800">
-                 <div className="flex items-center justify-between mb-10">
-                    <h3 className="text-2xl font-bold text-white">AI Content Preview</h3>
-                    <button onClick={() => setSelectedArticle(null)} className="p-2 hover:bg-slate-800 rounded-full transition-all"><XCircle size={24} /></button>
-                 </div>
-                 <div className="space-y-8">
-                    {selectedArticle.generatedImageUrl && (
-                        <div className="rounded-3xl overflow-hidden border border-slate-800 shadow-xl">
-                            <img src={selectedArticle.generatedImageUrl} className="w-full object-cover" />
-                        </div>
-                    )}
-                    <div className="bg-slate-900/50 p-8 rounded-3xl border border-slate-800 leading-relaxed text-lg text-slate-200">
-                        {selectedArticle.rewrittenText}
-                    </div>
-                 </div>
-              </div>
-
-              <div className="w-1/3 p-12 flex flex-col bg-slate-950/50">
-                 <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-8">Publish Targets</h4>
-                 <div className="flex-1 space-y-3">
-                    {accounts.map(acc => (
-                       <div key={acc.id} className="flex items-center justify-between p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
-                          <span className="text-sm font-bold">{acc.platform}</span>
-                          {postingProgress.find(p => p.platform === acc.platform)?.status === 'uploading' ? (
-                             <Loader2 size={18} className="animate-spin text-indigo-400" />
-                          ) : postingProgress.find(p => p.platform === acc.platform)?.status === 'success' ? (
-                             <CheckCircle size={18} className="text-emerald-400" />
-                          ) : (
-                             <div className={`w-2 h-2 rounded-full ${acc.status === 'connected' ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
-                          )}
-                       </div>
-                    ))}
-                 </div>
-                 
-                 <button 
-                    onClick={deployContent}
-                    disabled={postingProgress.length > 0}
-                    className="w-full py-5 mt-10 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-bold text-lg shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                 >
-                    {postingProgress.length > 0 ? <Loader2 className="animate-spin" /> : <Share2 size={20} />}
-                    Post Now
-                 </button>
-              </div>
+      {/* AI Processing Modal */}
+      {isProcessing && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
+           <div className="relative">
+              <div className="w-24 h-24 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin"></div>
+              <Rocket className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-500" />
            </div>
+           <p className="mt-8 text-indigo-400 font-bold tracking-widest text-sm">GEMINI AI IS ANALYZING CONTENT</p>
         </div>
       )}
 
-      {isProcessing && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
-           <div className="w-20 h-20 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-indigo-400 font-bold animate-pulse">Gemini AI is crafting your post...</p>
-        </div>
+      {/* Review Modal */}
+      {selectedArticle && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl">
+            <div className="glass w-full max-w-4xl max-h-[85vh] rounded-[40px] border border-white/5 overflow-hidden flex shadow-2xl animate-in slide-in-from-bottom-8 duration-500">
+               <div className="flex-1 p-12 overflow-y-auto border-r border-slate-800">
+                  <h3 className="text-2xl font-black mb-10 text-white">Review Generated Content</h3>
+                  {selectedArticle.generatedImageUrl && <img src={selectedArticle.generatedImageUrl} className="w-full h-64 object-cover rounded-3xl mb-8 border border-slate-800" />}
+                  <div className="prose prose-invert bg-slate-900/50 p-8 rounded-3xl border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-wrap">
+                     {selectedArticle.rewrittenText}
+                  </div>
+               </div>
+               <div className="w-80 p-10 bg-slate-950/50 flex flex-col">
+                  <button onClick={() => setSelectedArticle(null)} className="self-end p-2 hover:bg-slate-800 rounded-full mb-10"><XCircle size={24} className="text-slate-500"/></button>
+                  <div className="flex-1 space-y-4">
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Destinations ({accounts.length})</p>
+                     {accounts.map(acc => (
+                        <div key={acc.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                           <span className="text-xs font-bold text-white">{acc.name}</span>
+                        </div>
+                     ))}
+                     {accounts.length === 0 && <p className="text-xs text-red-400 italic">No accounts connected!</p>}
+                  </div>
+                  <button 
+                    disabled={accounts.length === 0}
+                    onClick={async () => {
+                        await postToPlatforms(selectedArticle);
+                        setSelectedArticle(null);
+                        alert("Successfully published across all platforms!");
+                    }}
+                    className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-2xl font-bold shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-2 text-white"
+                  >
+                     <Send size={20} /> Deploy Post
+                  </button>
+               </div>
+            </div>
+         </div>
       )}
     </div>
   );

@@ -15,7 +15,8 @@
     "@google/genai": "^1.39.0",
     "lucide-react": "^0.563.0",
     "telegraf": "^4.16.3",
-    "axios": "^1.6.7"
+    "axios": "^1.6.7",
+    "@supabase/supabase-js": "^2.48.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

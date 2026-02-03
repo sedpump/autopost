@@ -8,13 +8,20 @@ export enum Platform {
   PIKABU = 'Pikabu'
 }
 
+export interface User {
+  id: string;
+  username: string;
+  token?: string;
+}
+
 export interface Source {
   id: string;
+  userId: string;
   name: string;
   url: string;
   type: 'channel' | 'group' | 'bot';
   isActive: boolean;
-  lastScraped?: string;
+  createdAt: string;
 }
 
 export interface Account {
@@ -27,6 +34,7 @@ export interface Account {
 
 export interface Article {
   id: string;
+  userId: string;
   source: string;
   originalText: string;
   timestamp: string;
@@ -40,11 +48,4 @@ export interface PostingStatus {
   platform: Platform;
   status: 'idle' | 'uploading' | 'success' | 'failed';
   link?: string;
-}
-
-export interface Stats {
-  totalScraped: number;
-  totalPosted: number;
-  aiTokensUsed: number;
-  activeChannels: number;
 }
