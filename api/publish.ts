@@ -145,6 +145,10 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       }
     }
 
+    if (image && !attachments) {
+      throw new Error("Не удалось сформировать attachments для изображения");
+    }
+
     const postData: any = {
       owner_id: targetId,
       from_group: 1,
