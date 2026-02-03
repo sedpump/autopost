@@ -41,7 +41,8 @@ import {
   Smartphone,
   Copy,
   Terminal,
-  Eye
+  Eye,
+  AlertTriangle
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -82,6 +83,7 @@ const App: React.FC = () => {
   const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
   const [newAccName, setNewAccName] = useState('');
   const [newAccCreds, setNewAccCreds] = useState<any>({});
+  const [vkAppId, setVkAppId] = useState('');
 
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -173,6 +175,7 @@ const App: React.FC = () => {
     setNewAccPlatform(Platform.TELEGRAM);
     setNewAccName('');
     setNewAccCreds({});
+    setVkAppId('');
     setShowAddAccount(true);
   };
 
@@ -181,6 +184,7 @@ const App: React.FC = () => {
     setNewAccPlatform(acc.platform);
     setNewAccName(acc.name);
     setNewAccCreds(acc.credentials);
+    setVkAppId('');
     setShowAddAccount(true);
   };
 
@@ -320,12 +324,6 @@ const App: React.FC = () => {
     }
   };
 
-  const copyDebugToClipboard = (data: any) => {
-    const text = `ЗАПРОС:\n${data.request}\n\nОТВЕТ:\n${data.response}`;
-    navigator.clipboard.writeText(text);
-    alert("Скопировано! Отправьте этот текст в поддержку.");
-  };
-
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
@@ -357,6 +355,12 @@ const App: React.FC = () => {
       case Platform.PIKABU: return <Flame size={20} />;
       default: return <Zap size={20} />;
     }
+  };
+
+  const generateVkAuthLink = () => {
+    if (!vkAppId.trim()) return;
+    const link = `https://oauth.vk.com/authorize?client_id=${vkAppId.trim()}&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=wall,photos,offline&response_type=token&v=5.131`;
+    window.open(link, '_blank');
   };
 
   return (
@@ -505,11 +509,37 @@ const App: React.FC = () => {
 
               {newAccPlatform === Platform.VK && (
                 <div className="space-y-3">
-                  <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-2">
-                    <Info size={14} className="inline mr-2 text-indigo-400" />
-                    Для фото нужен <b>User Token</b> (Standalone). С токеном сообщества будет только текст.
+                  <div className="p-5 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-4">
+                    <p className="font-bold text-indigo-400 mb-2 flex items-center gap-2"><Key size={14}/> Помощник получения токена:</p>
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl mb-4 flex items-start gap-2">
+                       <AlertTriangle className="text-red-400 shrink-0" size={16}/>
+                       <div className="text-[10px] text-red-200 leading-tight">
+                         <p className="font-bold mb-1">ОШИБКА INVALID SCOPE?</p>
+                         <p>Она возникает, если вы выбрали «Мини-приложение» или «Сайт». Нужно <b>Standalone-приложение</b>.</p>
+                       </div>
+                    </div>
+                    <p className="mb-2">1. Создайте приложение <b>типа Standalone</b> по этой ссылке:</p>
+                    <a href="https://vk.com/editapp?act=create" target="_blank" className="inline-flex items-center gap-1 text-indigo-400 font-bold hover:underline mb-4">
+                      vk.com/editapp?act=create <ExternalLink size={12}/>
+                    </a>
+                    <p className="mb-2">2. Введите <b>ID приложения</b> из раздела «Настройки»:</p>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="ID приложения" 
+                        value={vkAppId} 
+                        onChange={e => setVkAppId(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white outline-none text-xs"
+                      />
+                      <button 
+                        onClick={generateVkAuthLink}
+                        className="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-white font-bold transition-all text-[10px]"
+                      >
+                        Получить токен
+                      </button>
+                    </div>
                   </div>
-                  <input placeholder="Access Token (Ключ доступа)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="Access Token пользователя" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                   <input placeholder="ID группы (напр. 223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                 </div>
               )}
@@ -613,7 +643,7 @@ const App: React.FC = () => {
                 <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl"><Terminal size={24}/></div>
                 <div>
                    <h3 className="text-2xl font-black text-white">Технический аудит</h3>
-                   <p className="text-slate-500 text-xs">Токен маскируется для вашей безопасности</p>
+                   <p className="text-slate-500 text-xs">Данные запроса к API платформы</p>
                 </div>
               </div>
               <button onClick={() => setShowDebugModal(null)} className="p-2 text-slate-500 hover:text-white"><XCircle size={32}/></button>

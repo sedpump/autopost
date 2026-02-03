@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { Buffer } from 'buffer';
@@ -29,7 +30,6 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
   }
 }
 
-// Added missing publishToTelegram function to handle Telegram Bot API publishing
 async function publishToTelegram(botToken: string, chatId: string, text: string, image?: string) {
   const token = botToken.trim();
   const id = chatId.trim();
@@ -73,7 +73,6 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     };
     
     const fullUrl = `https://api.vk.com/method/${method}`;
-    // УБРАНО СКРЫТИЕ ТОКЕНА - теперь вы видите всё
     const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify(fullParams, null, 2)}`;
 
     if (previewOnly && method === 'wall.post') {
@@ -121,21 +120,16 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
   let attachments = '';
   let photoLogs = [];
 
-  // Пытаемся обработать картинку
   if (image) {
     try {
       if (!previewOnly) {
-        // 1. Получаем сервер
         const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
-        
-        // 2. Качаем картинку
         const buffer = await getImageBuffer(image);
         if (buffer) {
           const form = new FormData();
           form.append('photo', buffer, { filename: 'image.png' });
           const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
           
-          // 3. Сохраняем
           const saved = await vkPost('photos.saveWallPhoto', {
             group_id: rawGroupId,
             photo: uploadRes.data.photo,
@@ -151,24 +145,25 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
         attachments = `photo12345_67890`;
       }
     } catch (e: any) {
-      // КРИТИЧЕСКИЙ МОМЕНТ: если фото не вышло, мы просто записываем ошибку в логи и идем дальше к wall.post
       photoLogs.push(`Ошибка фото: ${e.message}`);
       console.error("VK Photo Step Failed, continuing to text post...", e.message);
     }
   }
 
-  // ФИНАЛЬНЫЙ ПОСТ (Текст должен уйти в любом случае)
   try {
     const postData: any = {
       owner_id: targetId,
       from_group: 1,
-      message: text || '',
-      attachments: attachments // Передаем ВСЕГДА (если пусто - будет пустая строка)
+      message: text || ''
     };
+    
+    // Отправляем attachments только если они реально есть
+    if (attachments) {
+      postData.attachments = attachments;
+    }
     
     await vkPost('wall.post', postData);
   } catch (e: any) {
-    // Если упал даже wall.post - пробрасываем ошибку с полным дебагом
     const finalErr = new Error(e.message) as any;
     finalErr.debugData = e.debugData;
     if (photoLogs.length > 0) finalErr.message += ` (Доп. ошибки: ${photoLogs.join(', ')})`;
