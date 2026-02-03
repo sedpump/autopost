@@ -304,7 +304,6 @@ const App: React.FC = () => {
       }, preview);
       
       if (preview) {
-        // Ищем любой результат с debugData (обычно это ВК)
         const debugRes = result.results.find((r: any) => r.debugData);
         if (debugRes) {
           setShowDebugModal(debugRes.debugData);
@@ -407,12 +406,6 @@ const App: React.FC = () => {
                   </button>
                 </div>
               ))}
-              {articles.length === 0 && !isFetching && (
-                <div className="col-span-full py-20 text-center text-slate-500">
-                   <div className="mb-4 inline-block p-4 bg-slate-900 rounded-full"><Info size={32}/></div>
-                   <p>Входящих публикаций нет. Добавьте источники Telegram.</p>
-                </div>
-              )}
             </div>
           )}
 
@@ -514,23 +507,10 @@ const App: React.FC = () => {
                 <div className="space-y-3">
                   <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-2">
                     <Info size={14} className="inline mr-2 text-indigo-400" />
-                    Ключ берите во вкладке <b>Ключи доступа</b>.
+                    Для фото нужен <b>User Token</b> (Standalone). С токеном сообщества будет только текст.
                   </div>
                   <input placeholder="Access Token (Ключ доступа)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                   <input placeholder="ID группы (напр. 223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
-                </div>
-              )}
-
-              {newAccPlatform === Platform.DZEN && (
-                <div className="space-y-3">
-                  <input placeholder="Dzen API Token" value={newAccCreds.token || ''} onChange={e => setNewAccCreds({...newAccCreds, token: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
-                </div>
-              )}
-
-              {newAccPlatform === Platform.INSTAGRAM && (
-                <div className="space-y-3">
-                  <input placeholder="FB Graph Access Token" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
-                  <input placeholder="Instagram Business Account ID" value={newAccCreds.igId || ''} onChange={e => setNewAccCreds({...newAccCreds, igId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                 </div>
               )}
 
@@ -546,7 +526,7 @@ const App: React.FC = () => {
       {(isProcessing || isDeploying) && (
         <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
            <div className="w-20 h-20 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-white text-xl font-black tracking-wide">{isDeploying ? 'Публикация контента...' : 'Нейросети обрабатывают контент...'}</p>
+           <p className="text-white text-xl font-black tracking-wide">{isDeploying ? 'Публикация...' : 'Анализируем контент...'}</p>
         </div>
       )}
 
@@ -564,7 +544,7 @@ const App: React.FC = () => {
                        >
                          <Eye size={18}/> Технический предпросмотр
                        </button>
-                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать">
+                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all">
                          <Sparkles size={20}/>
                        </button>
                     </div>
@@ -583,15 +563,14 @@ const App: React.FC = () => {
                         {selectedArticle.generatedImageUrl && (
                           <div className="relative group">
                             <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
-                            <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/10 transition-all rounded-[40px] pointer-events-none"></div>
                           </div>
                         )}
                         <div className="space-y-3">
-                           <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Финальный текст (можно редактировать)</label>
+                           <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Финальный текст</label>
                            <textarea 
                               value={editableText}
                               onChange={(e) => setEditableText(e.target.value)}
-                              className="w-full min-h-[250px] p-10 bg-slate-900/50 rounded-[40px] border border-slate-800 text-base text-slate-100 font-medium whitespace-pre-wrap outline-none focus:border-indigo-500/50 transition-all resize-none"
+                              className="w-full min-h-[250px] p-10 bg-slate-900/50 rounded-[40px] border border-slate-800 text-base text-slate-100 font-medium outline-none focus:border-indigo-500/50 transition-all resize-none"
                            />
                         </div>
                      </div>
@@ -602,42 +581,24 @@ const App: React.FC = () => {
                   <div className="flex-1 space-y-4 overflow-y-auto pr-2">
                      <h5 className="text-[10px] font-black uppercase text-slate-500 mb-4 px-2">Выбранные каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (
-                        <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 transition-all animate-in fade-in slide-in-from-right-4 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                        <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                            <div className="flex justify-between items-center">
-                             <div className="flex items-center gap-2">
-                                <p className="text-sm font-black text-white">{res.name}</p>
-                                {res.debugData && (
-                                   <button 
-                                      onClick={() => setShowDebugModal(res.debugData)}
-                                      className="p-1.5 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/40 transition-all"
-                                      title="Данные для поддержки"
-                                   >
-                                      <Bug size={12}/>
-                                   </button>
-                                )}
-                             </div>
+                             <p className="text-sm font-black text-white">{res.name}</p>
                              {res.status === 'success' ? <CheckCircle size={16} className="text-emerald-500"/> : <ShieldAlert size={16} className="text-red-500"/>}
                            </div>
-                           <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
-                           {res.error && (
-                             <div className="mt-3 p-3 bg-red-950/30 rounded-2xl border border-red-500/10">
-                               <p className="text-[10px] text-red-300 leading-relaxed font-medium">
-                                 {res.error}
-                               </p>
-                             </div>
-                           )}
+                           {res.error && <p className="text-[10px] text-red-300 mt-2">{res.error}</p>}
                         </div>
                      )) : accounts.map(acc => (
-                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between hover:bg-slate-900 transition-all group">
+                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between group">
                            <span className="text-sm font-bold text-white">{acc.name}</span>
                            <div className="text-slate-700 group-hover:text-indigo-400 transition-colors">{renderAccountIcon(acc.platform)}</div>
                         </div>
                      ))}
                   </div>
                   {!deployResults ? (
-                    <button onClick={() => handleDeploy(false)} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 transition-all active:scale-95">Опубликовать во всех</button>
+                    <button onClick={() => handleDeploy(false)} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs transition-all">Опубликовать</button>
                   ) : (
-                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Готово</button>
+                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Завершить</button>
                   )}
                </div>
             </div>
@@ -651,20 +612,20 @@ const App: React.FC = () => {
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl"><Terminal size={24}/></div>
                 <div>
-                   <h3 className="text-2xl font-black text-white">Боевой запрос для поддержки</h3>
-                   <p className="text-slate-500 text-xs">Скопируйте эти данные и отправьте в ВК</p>
+                   <h3 className="text-2xl font-black text-white">Технический аудит</h3>
+                   <p className="text-slate-500 text-xs">Токен маскируется для вашей безопасности</p>
                 </div>
               </div>
-              <button onClick={() => setShowDebugModal(null)} className="p-2 hover:bg-white/5 rounded-full transition-all text-slate-500 hover:text-white"><XCircle size={32}/></button>
+              <button onClick={() => setShowDebugModal(null)} className="p-2 text-slate-500 hover:text-white"><XCircle size={32}/></button>
             </div>
             
-            <div className="flex-1 overflow-y-auto space-y-6 pr-4 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto space-y-6 pr-4">
                <div className="space-y-3">
                  <div className="flex justify-between items-center px-2">
-                    <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">HTTP Запрос</label>
-                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.request)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 transition-all"><Copy size={12}/> Копировать запрос</button>
+                    <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">HTTP Запрос (Payload)</label>
+                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.request)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1"><Copy size={12}/> Копировать</button>
                  </div>
-                 <pre className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-[11px] text-indigo-300 font-mono whitespace-pre-wrap break-all leading-relaxed">
+                 <pre className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-[11px] text-indigo-300 font-mono whitespace-pre-wrap leading-relaxed">
                    {showDebugModal.request}
                  </pre>
                </div>
@@ -672,20 +633,12 @@ const App: React.FC = () => {
                <div className="space-y-3">
                  <div className="flex justify-between items-center px-2">
                     <label className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Ответ API</label>
-                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.response)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 transition-all"><Copy size={12}/> Копировать ответ</button>
                  </div>
                  <pre className="bg-slate-950 border border-emerald-500/20 p-6 rounded-3xl text-[11px] text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed">
                    {showDebugModal.response}
                  </pre>
                </div>
             </div>
-
-            <button 
-              onClick={() => copyDebugToClipboard(showDebugModal)}
-              className="w-full mt-10 py-5 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-[32px] text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/20"
-            >
-              <Copy size={18}/> Копировать всё для техподдержки
-            </button>
           </div>
         </div>
       )}

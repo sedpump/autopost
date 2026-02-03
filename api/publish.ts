@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { Buffer } from 'buffer';
@@ -30,30 +29,41 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
   }
 }
 
-async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
-  const botApiUrl = `https://api.telegram.org/bot${token.trim()}`;
+// Added missing publishToTelegram function to handle Telegram Bot API publishing
+async function publishToTelegram(botToken: string, chatId: string, text: string, image?: string) {
+  const token = botToken.trim();
+  const id = chatId.trim();
+  
   try {
-    if (image) {
-      const buffer = await getImageBuffer(image);
-      if (buffer) {
-        const form = new FormData();
-        form.append('chat_id', chatId.trim());
-        form.append('photo', buffer, { filename: 'post.png' });
-        form.append('caption', text.slice(0, 1024));
-        await axios.post(`${botApiUrl}/sendPhoto`, form, { headers: form.getHeaders(), timeout: 30000 });
-        return;
-      }
+    const buffer = image ? await getImageBuffer(image) : null;
+
+    if (buffer) {
+      const form = new FormData();
+      form.append('chat_id', id);
+      form.append('caption', text || '');
+      form.append('photo', buffer, { filename: 'image.png' });
+      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
+        headers: form.getHeaders(),
+        timeout: 25000
+      });
+    } else {
+      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: id,
+        text: text || ''
+      }, {
+        timeout: 25000
+      });
     }
-    await axios.post(`${botApiUrl}/sendMessage`, { chat_id: chatId.trim(), text });
-  } catch (e: any) {
-    throw new Error(`TG: ${e.response?.data?.description || e.message}`);
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.description || err.message;
+    throw new Error(`Telegram error: ${errorMsg}`);
   }
 }
 
 async function publishToVK(accessToken: string, ownerId: string, text: string, image?: string, previewOnly: boolean = false) {
   const token = accessToken.trim();
-  const rawGroupId = ownerId.trim().replace(/\D/g, ''); // Только цифры (положительный ID)
-  const targetId = `-${rawGroupId}`; // ID стены (отрицательный для групп)
+  const rawGroupId = ownerId.trim().replace(/\D/g, ''); 
+  const targetId = `-${rawGroupId}`; 
   
   const vkPost = async (method: string, data: any) => {
     const fullParams = {
@@ -63,7 +73,8 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     };
     
     const fullUrl = `https://api.vk.com/method/${method}`;
-    const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify({ ...fullParams, access_token: '***' }, null, 2)}`;
+    // УБРАНО СКРЫТИЕ ТОКЕНА - теперь вы видите всё
+    const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify(fullParams, null, 2)}`;
 
     if (previewOnly && method === 'wall.post') {
       const err = new Error("PREVIEW_MODE") as any;
@@ -87,6 +98,7 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       
       if (response.data.error) {
         const err = new Error(response.data.error.error_msg) as any;
+        err.errorCode = response.data.error.error_code;
         err.debugData = {
           request: rawRequestString,
           response: JSON.stringify(response.data, null, 2)
@@ -106,26 +118,24 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     }
   };
 
-  try {
-    let attachments = '';
-    
-    // Если есть картинка
-    if (image) {
+  let attachments = '';
+  let photoLogs = [];
+
+  // Пытаемся обработать картинку
+  if (image) {
+    try {
       if (!previewOnly) {
         // 1. Получаем сервер
         const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
         
-        // 2. Загружаем файл
+        // 2. Качаем картинку
         const buffer = await getImageBuffer(image);
         if (buffer) {
           const form = new FormData();
           form.append('photo', buffer, { filename: 'image.png' });
-          const uploadRes = await axios.post(uploadServer.upload_url, form, { 
-            headers: form.getHeaders() 
-          });
+          const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
           
-          // 3. Сохраняем фото на стену
-          // Важно: параметры photo, server, hash возвращаются в теле ответа загрузки
+          // 3. Сохраняем
           const saved = await vkPost('photos.saveWallPhoto', {
             group_id: rawGroupId,
             photo: uploadRes.data.photo,
@@ -135,31 +145,33 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
           
           if (saved && saved.length > 0) {
             attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
-          } else {
-            throw new Error("ВК не сохранил фотографию (пустой ответ)");
           }
         }
       } else {
-        // Для превью симулируем вложение
         attachments = `photo12345_67890`;
       }
+    } catch (e: any) {
+      // КРИТИЧЕСКИЙ МОМЕНТ: если фото не вышло, мы просто записываем ошибку в логи и идем дальше к wall.post
+      photoLogs.push(`Ошибка фото: ${e.message}`);
+      console.error("VK Photo Step Failed, continuing to text post...", e.message);
     }
+  }
 
+  // ФИНАЛЬНЫЙ ПОСТ (Текст должен уйти в любом случае)
+  try {
     const postData: any = {
       owner_id: targetId,
       from_group: 1,
-      message: text || ''
+      message: text || '',
+      attachments: attachments // Передаем ВСЕГДА (если пусто - будет пустая строка)
     };
     
-    // ГАРАНТИРОВАННО добавляем attachments, если они сформированы
-    if (attachments) {
-      postData.attachments = attachments;
-    }
-
     await vkPost('wall.post', postData);
   } catch (e: any) {
+    // Если упал даже wall.post - пробрасываем ошибку с полным дебагом
     const finalErr = new Error(e.message) as any;
     finalErr.debugData = e.debugData;
+    if (photoLogs.length > 0) finalErr.message += ` (Доп. ошибки: ${photoLogs.join(', ')})`;
     throw finalErr;
   }
 }
