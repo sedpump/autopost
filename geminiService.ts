@@ -1,13 +1,11 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-
 export const rewriteArticle = async (text: string): Promise<string> => {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: `Rewrite the following article to be engaging, professional, and optimized for social media platforms. Preserve the core facts but improve the flow and tone. Use emojis where appropriate for Telegram/Instagram. Article: ${text}`,
+    contents: [{ parts: [{ text: `Rewrite the following article to be engaging, professional, and optimized for social media platforms. Preserve the core facts but improve the flow and tone. Use emojis where appropriate for Telegram/Instagram. Article: ${text}` }] }],
     config: {
       temperature: 0.8,
       topP: 0.95,
@@ -18,7 +16,7 @@ export const rewriteArticle = async (text: string): Promise<string> => {
 };
 
 export const generateImageForArticle = async (prompt: string): Promise<string> => {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
@@ -42,10 +40,10 @@ export const generateImageForArticle = async (prompt: string): Promise<string> =
 };
 
 export const extractKeyConcepts = async (text: string): Promise<string[]> => {
-    const ai = getAI();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Extract 3-5 main keywords or themes from this text as a comma separated list: ${text}`,
+        contents: [{ parts: [{ text: `Extract 3-5 main keywords or themes from this text as a comma separated list: ${text}` }] }],
         config: {
             responseMimeType: "application/json",
             responseSchema: {
