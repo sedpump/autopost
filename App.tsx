@@ -116,7 +116,8 @@ const App: React.FC = () => {
   const handleOpenAiStudio = async () => {
     if (typeof (window as any).aistudio !== 'undefined') {
       await (window as any).aistudio.openSelectKey();
-      setHasImageKey(true);
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      setHasImageKey(hasKey);
     }
   };
 
@@ -234,7 +235,6 @@ const App: React.FC = () => {
 
     if (!confirm("Запустить тестовую публикацию?")) return;
 
-    // Ссылка, которую ты скинул
     const testImage = "https://cdn.midjourney.com/6886e6ce-bffa-45b1-a011-b1e47dcbc717/0_0.png";
     
     const testArticle: Article = {
@@ -349,7 +349,14 @@ const App: React.FC = () => {
           <button onClick={() => setActiveTab('accounts')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'accounts' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
             <UserCheck size={20} /> <span className="font-medium">Аккаунты</span>
           </button>
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <SettingsIcon size={20} /> <span className="font-medium">Настройки</span>
+          </button>
         </nav>
+        <div className="px-4 py-4 bg-slate-900/50 rounded-2xl border border-slate-800/50">
+          <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Пользователь</p>
+          <p className="text-sm font-bold text-white truncate">{user.username}</p>
+        </div>
         <button onClick={() => setUser(null)} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-400/5 transition-all">
           <LogOut size={20} /> <span className="font-medium">Выйти</span>
         </button>
@@ -358,7 +365,10 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto relative bg-slate-950/50">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
           <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
-          <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
+          <div className="flex items-center gap-4">
+            {isFetching && <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />}
+            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
+          </div>
         </header>
 
         <div className="p-10 max-w-7xl mx-auto">
@@ -376,6 +386,51 @@ const App: React.FC = () => {
                   </button>
                 </div>
               ))}
+              {articles.length === 0 && !isFetching && (
+                <div className="col-span-full py-20 text-center glass rounded-[40px] border-dashed border-slate-800">
+                  <Inbox className="mx-auto text-slate-700 w-12 h-12 mb-4" />
+                  <h3 className="text-xl font-bold text-slate-400">Входящие пусты</h3>
+                  <p className="text-slate-600 mt-2">Добавьте источники во вкладке "Источники"</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'sources' && (
+            <div className="max-w-3xl space-y-8">
+              <div className="glass p-8 rounded-[40px] border border-slate-800">
+                <h3 className="text-2xl font-bold text-white mb-6">Добавить канал</h3>
+                <form onSubmit={handleAddSource} className="flex gap-4">
+                  <div className="flex-1 relative">
+                    <Hash className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
+                    <input 
+                      type="text" placeholder="username канала (например: duplex_news)" value={newSourceUrl}
+                      onChange={e => setNewSourceUrl(e.target.value)}
+                      className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl pl-14 pr-6 py-4 focus:border-indigo-500 outline-none text-white"
+                    />
+                  </div>
+                  <button className="bg-indigo-600 hover:bg-indigo-500 px-8 rounded-2xl font-bold text-white transition-all flex items-center gap-2">
+                    <Plus size={20} /> Добавить
+                  </button>
+                </form>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                {sources.map(source => (
+                  <div key={source.id} className="glass px-8 py-6 rounded-3xl border border-slate-800 flex items-center justify-between group hover:border-indigo-500/30 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-slate-900 p-3 rounded-2xl text-indigo-400"><Hash size={20} /></div>
+                      <div>
+                        <h4 className="font-bold text-white">{source.url}</h4>
+                        <p className="text-xs text-slate-500">Telegram Channel</p>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteSource(source.id)} className="text-slate-700 hover:text-red-400 p-2 transition-colors">
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -407,6 +462,50 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="max-w-2xl space-y-10">
+              <section>
+                <h3 className="text-2xl font-bold text-white mb-6">Искусственный интеллект</h3>
+                <div className="glass p-10 rounded-[40px] border border-slate-800">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-indigo-600/20 p-4 rounded-3xl text-indigo-400"><Key size={24} /></div>
+                      <div>
+                        <h4 className="font-bold text-white">Gemini 3 Pro API Key</h4>
+                        <p className="text-xs text-slate-500 mt-1">Необходим для генерации качественных иллюстраций 1K</p>
+                      </div>
+                    </div>
+                    {hasImageKey ? (
+                      <span className="bg-emerald-500/10 text-emerald-500 px-4 py-2 rounded-full text-[10px] font-black uppercase border border-emerald-500/20">Активен</span>
+                    ) : (
+                      <span className="bg-red-500/10 text-red-500 px-4 py-2 rounded-full text-[10px] font-black uppercase border border-red-500/20">Отсутствует</span>
+                    )}
+                  </div>
+                  <button onClick={handleOpenAiStudio} className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 rounded-3xl font-black text-white text-xs uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20">
+                    {hasImageKey ? "Сменить ключ API" : "Привязать ключ Google AI"}
+                  </button>
+                  <p className="text-[10px] text-center text-slate-600 mt-6 leading-relaxed">
+                    Мы используем модель gemini-3-pro-image-preview для создания контента.<br/>
+                    Ваш ключ хранится локально в браузере.
+                  </p>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-2xl font-bold text-white mb-6">Безопасность</h3>
+                <div className="glass p-8 rounded-[40px] border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-2xl border border-slate-800/50">
+                    <div className="flex items-center gap-4">
+                      <ShieldCheck className="text-indigo-400" size={20} />
+                      <span className="font-medium text-slate-300">Двухфакторная авторизация</span>
+                    </div>
+                    <div className="w-12 h-6 bg-slate-800 rounded-full relative"><div className="absolute left-1 top-1 w-4 h-4 bg-slate-600 rounded-full"></div></div>
+                  </div>
+                </div>
+              </section>
             </div>
           )}
         </div>
