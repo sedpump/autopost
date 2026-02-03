@@ -1,0 +1,8 @@
+{
+  "name": "OmniPost AI Dashboard",
+  "description": "Enterprise-grade multi-platform content distribution system. Moniters Telegram feeds, rewrites articles using Gemini 3 Pro, generates images, and manages posting to VK, Instagram, Telegram, and more.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
