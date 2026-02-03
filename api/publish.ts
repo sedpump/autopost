@@ -12,64 +12,84 @@ const supabase = createClient(
 );
 
 /**
- * Получение буфера изображения из base64 или URL
+ * Загрузка изображения с таймаутом и проверкой
  */
 async function getImageBuffer(imageData: string): Promise<Buffer> {
-  if (imageData.startsWith('data:image')) {
-    return Buffer.from(imageData.split(',')[1], 'base64');
-  } else if (imageData.startsWith('http')) {
-    const response = await axios.get(imageData, { responseType: 'arraybuffer' });
-    return Buffer.from(response.data);
+  try {
+    if (imageData.startsWith('data:image')) {
+      return Buffer.from(imageData.split(',')[1], 'base64');
+    } else if (imageData.startsWith('http')) {
+      const response = await axios.get(imageData, { 
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        headers: { 'User-Agent': 'Mozilla/5.0 OmniPost/1.0' }
+      });
+      return Buffer.from(response.data);
+    }
+    throw new Error('Некорректный формат изображения');
+  } catch (e: any) {
+    throw new Error(`Ошибка загрузки изображения: ${e.message}`);
   }
-  throw new Error('Неподдерживаемый формат изображения');
 }
 
 /**
- * Загрузка фото в ВК
+ * Универсальная загрузка фото в ВК (поддерживает и ключи пользователей, и ключи групп)
  */
 async function uploadPhotoToVK(accessToken: string, targetId: number, imageData: string) {
-  const isGroup = targetId < 0;
-  const absGroupId = Math.abs(targetId);
-
-  // 1. Получаем сервер для загрузки
-  // ВАЖНО: Для токена сообщества group_id должен быть БЕЗ минуса
-  const serverRes = await axios.post(`https://api.vk.com/method/photos.getWallUploadServer`, null, {
-    params: {
-      access_token: accessToken,
-      group_id: isGroup ? absGroupId : undefined,
-      v: '5.131'
-    }
-  });
-
-  if (serverRes.data.error) {
-    const err = serverRes.data.error;
-    throw new Error(`[UploadServer] ${err.error_msg} (код ${err.error_code})`);
-  }
+  const absId = Math.abs(targetId);
   
-  const uploadUrl = serverRes.data.response.upload_url;
+  // Пытаемся получить сервер. Если targetId < 0, сразу шлем group_id.
+  const getServer = async (forcedGroupId?: number) => {
+    const params: any = { access_token: accessToken, v: '5.131' };
+    if (forcedGroupId) params.group_id = forcedGroupId;
+    else if (targetId < 0) params.group_id = absId;
 
-  // 2. Загружаем файл
+    const res = await axios.get(`https://api.vk.com/method/photos.getWallUploadServer`, { params });
+    
+    // Если получили ошибку 27, значит это токен группы и нужен group_id (даже если мы его не слали)
+    if (res.data.error?.error_code === 27 && !params.group_id) {
+      return getServer(absId); 
+    }
+    
+    if (res.data.error) throw new Error(`${res.data.error.error_msg} (код ${res.data.error.error_code})`);
+    return res.data.response.upload_url;
+  };
+
+  const uploadUrl = await getServer();
+
+  // Загружаем файл
   const buffer = await getImageBuffer(imageData);
   const form = new FormData();
-  form.append('photo', buffer, { filename: 'image.png' });
+  form.append('photo', buffer, { filename: 'post.png' });
 
-  const uploadRes = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
-
-  // 3. Сохраняем фото
-  const saveRes = await axios.post(`https://api.vk.com/method/photos.saveWallPhoto`, null, {
-    params: {
-      access_token: accessToken,
-      group_id: isGroup ? absGroupId : undefined,
-      user_id: !isGroup ? absGroupId : undefined,
-      photo: uploadRes.data.photo,
-      server: uploadRes.data.server,
-      hash: uploadRes.data.hash,
-      v: '5.131'
-    }
+  const uploadRes = await axios.post(uploadUrl, form, { 
+    headers: form.getHeaders(),
+    timeout: 20000 
   });
 
+  // Сохраняем фото
+  const saveParams: any = {
+    access_token: accessToken,
+    photo: uploadRes.data.photo,
+    server: uploadRes.data.server,
+    hash: uploadRes.data.hash,
+    v: '5.131'
+  };
+  
+  if (targetId < 0) saveParams.group_id = absId;
+
+  const saveRes = await axios.get(`https://api.vk.com/method/photos.saveWallPhoto`, { params: saveParams });
+
   if (saveRes.data.error) {
-    throw new Error(`[SavePhoto] ${saveRes.data.error.error_msg}`);
+    // Еще одна попытка с group_id если не сработало
+    if (saveRes.data.error.error_code === 27 && !saveParams.group_id) {
+        saveParams.group_id = absId;
+        const retrySave = await axios.get(`https://api.vk.com/method/photos.saveWallPhoto`, { params: saveParams });
+        if (retrySave.data.error) throw new Error(retrySave.data.error.error_msg);
+        const photo = retrySave.data.response[0];
+        return `photo${photo.owner_id}_${photo.id}`;
+    }
+    throw new Error(saveRes.data.error.error_msg);
   }
 
   const photo = saveRes.data.response[0];
@@ -77,100 +97,70 @@ async function uploadPhotoToVK(accessToken: string, targetId: number, imageData:
 }
 
 async function publishToVK(accessToken: string, ownerId: string, message: string, image?: string) {
-  let cleanIdStr = ownerId.trim().toLowerCase()
-    .replace('id', '').replace('club', '').replace('public', '').replace(' ', '');
-  
-  let numericId = parseInt(cleanIdStr, 10);
-  if (isNaN(numericId)) throw new Error('ВК: ID должен быть числом.');
+  let cleanId = ownerId.trim().toLowerCase().replace('id', '').replace('club', '').replace('public', '');
+  let numericId = parseInt(cleanId, 10);
+  if (isNaN(numericId)) throw new Error('ID должен быть числом');
 
-  const isExplicitGroup = ownerId.includes('-') || ownerId.includes('club') || ownerId.includes('public');
-  if (isExplicitGroup && numericId > 0) numericId = -numericId;
+  // Если это группа (число было с минусом или содержало club/public), гарантируем минус
+  const isGroup = ownerId.includes('-') || ownerId.includes('club') || ownerId.includes('public');
+  if (isGroup && numericId > 0) numericId = -numericId;
 
   let attachment = "";
-  let photoError = "";
+  let warn = "";
 
   if (image) {
     try {
       attachment = await uploadPhotoToVK(accessToken, numericId, image);
     } catch (e: any) {
-      console.error("VK Image Upload Failed:", e.message);
-      photoError = ` (Ошибка фото: ${e.message})`;
+      warn = ` (Пост без фото: ${e.message})`;
     }
   }
 
-  const postRes = await axios.post(`https://api.vk.com/method/wall.post`, null, {
+  const res = await axios.post(`https://api.vk.com/method/wall.post`, null, {
     params: {
       access_token: accessToken,
       owner_id: numericId,
       from_group: numericId < 0 ? 1 : 0,
-      message: message,
+      message,
       attachments: attachment,
       v: '5.131'
     }
   });
-  
-  if (postRes.data.error) {
-    throw new Error(`ВК: ${postRes.data.error.error_msg}`);
-  }
-  
-  return photoError ? { partial: true, error: photoError } : { success: true };
+
+  if (res.data.error) throw new Error(res.data.error.error_msg);
+  return warn ? { partial: true, error: warn } : { success: true };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
-  
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ error: 'Unauthorized' });
-  const userId = auth.replace('Bearer ', '');
+  if (req.method !== 'POST') return res.status(405).send('Not Allowed');
+  const userId = req.headers.authorization?.replace('Bearer ', '');
+  if (!userId) return res.status(401).send('Unauthorized');
 
-  const { text, image, articleId } = req.body;
-
-  const { data: accounts, error: accError } = await supabase
-    .from('target_accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('is_active', true);
-
-  if (accError || !accounts) return res.status(500).json({ error: 'DB Error' });
+  const { text, image } = req.body;
+  const { data: accounts } = await supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
+  if (!accounts) return res.json({ results: [] });
 
   const results = [];
-
-  for (const account of accounts) {
+  for (const acc of accounts) {
     try {
-      if (account.platform === 'Telegram') {
-        const botToken = account.credentials.botToken?.trim();
-        const rawChatId = (account.credentials.chatId || '').toString().trim();
-        let finalChatId: string | number = rawChatId;
-        if (/^-?\d+$/.test(rawChatId)) finalChatId = Number(rawChatId);
-        else if (!rawChatId.startsWith('@')) finalChatId = `@${rawChatId}`;
-
-        const bot = new Telegraf(botToken);
+      if (acc.platform === 'Telegram') {
+        const bot = new Telegraf(acc.credentials.botToken);
+        const chatId = acc.credentials.chatId;
         if (image) {
           const buffer = await getImageBuffer(image);
-          await bot.telegram.sendPhoto(finalChatId, { source: buffer }, { caption: text.slice(0, 1024) });
-          if (text.length > 1024) await bot.telegram.sendMessage(finalChatId, text);
+          await bot.telegram.sendPhoto(chatId, { source: buffer }, { caption: text.slice(0, 1024) });
+          if (text.length > 1024) await bot.telegram.sendMessage(chatId, text);
         } else {
-          await bot.telegram.sendMessage(finalChatId, text);
+          await bot.telegram.sendMessage(chatId, text);
         }
-        results.push({ platform: account.platform, name: account.name, status: 'success' });
-
-      } else if (account.platform === 'VK') {
-        const token = account.credentials.accessToken?.trim();
-        const ownerId = (account.credentials.ownerId || '').toString().trim();
-        const vkRes = await publishToVK(token, ownerId, text, image);
-        results.push({ 
-          platform: account.platform, 
-          name: account.name, 
-          status: vkRes.partial ? 'failed' : 'success', 
-          error: vkRes.error || undefined 
-        });
-      } else {
-        results.push({ platform: account.platform, name: account.name, status: 'failed', error: 'Platform not supported' });
+        results.push({ name: acc.name, status: 'success' });
+      } else if (acc.platform === 'VK') {
+        const vkRes = await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image);
+        results.push({ name: acc.name, status: vkRes.partial ? 'failed' : 'success', error: vkRes.error });
       }
     } catch (e: any) {
-      results.push({ platform: account.platform, name: account.name, status: 'failed', error: e.message || 'Error' });
+      results.push({ name: acc.name, status: 'failed', error: e.message });
     }
   }
-
-  return res.status(200).json({ results });
+  res.status(200).json({ results });
 }
