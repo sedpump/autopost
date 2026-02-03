@@ -1,45 +1,50 @@
 
 import { Platform, Article } from './types';
 
-/**
- * PRODUCTION READY SERVICE
- * Этот сервис теперь может работать с реальным бэкендом.
- */
 export const postToPlatforms = async (article: Article, platforms: Platform[], backendUrl?: string) => {
   const payload = {
     text: article.rewrittenText,
     image: article.generatedImageUrl,
     platforms: platforms,
+    auth_token: localStorage.getItem('api_token') || '',
     metadata: {
       originalSource: article.source,
-      articleId: article.id,
-      timestamp: new Date().toISOString()
+      articleId: article.id
     }
   };
 
-  console.log(">>> DEPLOYING PAYLOAD:", payload);
-
-  // Если URL бэкенда не задан, работаем в режиме симуляции
-  if (!backendUrl) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    return { success: true, mode: 'simulation', message: "Simulated: Data logged to console." };
-  }
+  // Если backendUrl не пустой и не начинается на '/', используем его (для Railway)
+  // Иначе используем встроенные Vercel Functions (/api/publish)
+  const endpoint = backendUrl && !backendUrl.startsWith('/') 
+    ? `${backendUrl}/api/publish` 
+    : '/api/publish';
 
   try {
-    const response = await fetch(`${backendUrl}/api/post`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('api_token') || ''}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+    }
     
     return await response.json();
   } catch (error) {
-    console.error("Backend error:", error);
+    console.error("Publishing error:", error);
     throw error;
+  }
+};
+
+export const fetchInbox = async () => {
+  try {
+    const response = await fetch('/api/articles');
+    if (!response.ok) throw new Error('Failed to fetch inbox');
+    return await response.json();
+  } catch (error) {
+    console.error("Inbox fetch error:", error);
+    return [];
   }
 };
