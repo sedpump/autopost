@@ -12,52 +12,61 @@ const supabase = createClient(
 );
 
 /**
+ * Получение буфера изображения из base64 или URL
+ */
+async function getImageBuffer(imageData: string): Promise<Buffer> {
+  if (imageData.startsWith('data:image')) {
+    return Buffer.from(imageData.split(',')[1], 'base64');
+  } else if (imageData.startsWith('http')) {
+    const response = await axios.get(imageData, { responseType: 'arraybuffer' });
+    return Buffer.from(response.data);
+  }
+  throw new Error('Неподдерживаемый формат изображения');
+}
+
+/**
  * Загрузка фото в ВК
  */
-async function uploadPhotoToVK(accessToken: string, targetId: number, base64Image: string) {
+async function uploadPhotoToVK(accessToken: string, targetId: number, imageData: string) {
   const isGroup = targetId < 0;
-  const absId = Math.abs(targetId);
+  const absGroupId = Math.abs(targetId);
 
   // 1. Получаем сервер для загрузки
-  const serverParams: any = {
-    access_token: accessToken,
-    v: '5.131'
-  };
-  // Для токенов сообщества group_id ОБЯЗАТЕЛЕН
-  if (isGroup) serverParams.group_id = absId;
-
-  const serverRes = await axios.get(`https://api.vk.com/method/photos.getWallUploadServer`, { params: serverParams });
+  // ВАЖНО: Для токена сообщества group_id должен быть БЕЗ минуса
+  const serverRes = await axios.post(`https://api.vk.com/method/photos.getWallUploadServer`, null, {
+    params: {
+      access_token: accessToken,
+      group_id: isGroup ? absGroupId : undefined,
+      v: '5.131'
+    }
+  });
 
   if (serverRes.data.error) {
     const err = serverRes.data.error;
-    throw new Error(`[UploadServer] ${err.error_msg} (код ${err.error_code}). Проверьте права 'photos' в ключе.`);
+    throw new Error(`[UploadServer] ${err.error_msg} (код ${err.error_code})`);
   }
   
   const uploadUrl = serverRes.data.response.upload_url;
 
   // 2. Загружаем файл
-  const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+  const buffer = await getImageBuffer(imageData);
   const form = new FormData();
   form.append('photo', buffer, { filename: 'image.png' });
 
   const uploadRes = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
 
-  // 3. Сохраняем фото на стене
-  const saveParams: any = {
-    access_token: accessToken,
-    photo: uploadRes.data.photo,
-    server: uploadRes.data.server,
-    hash: uploadRes.data.hash,
-    v: '5.131'
-  };
-  
-  if (isGroup) {
-    saveParams.group_id = absId;
-  } else {
-    saveParams.user_id = absId;
-  }
-
-  const saveRes = await axios.get(`https://api.vk.com/method/photos.saveWallPhoto`, { params: saveParams });
+  // 3. Сохраняем фото
+  const saveRes = await axios.post(`https://api.vk.com/method/photos.saveWallPhoto`, null, {
+    params: {
+      access_token: accessToken,
+      group_id: isGroup ? absGroupId : undefined,
+      user_id: !isGroup ? absGroupId : undefined,
+      photo: uploadRes.data.photo,
+      server: uploadRes.data.server,
+      hash: uploadRes.data.hash,
+      v: '5.131'
+    }
+  });
 
   if (saveRes.data.error) {
     throw new Error(`[SavePhoto] ${saveRes.data.error.error_msg}`);
@@ -68,30 +77,27 @@ async function uploadPhotoToVK(accessToken: string, targetId: number, base64Imag
 }
 
 async function publishToVK(accessToken: string, ownerId: string, message: string, image?: string) {
-  // Обработка ID: убираем префиксы, но сохраняем минус если он есть
   let cleanIdStr = ownerId.trim().toLowerCase()
     .replace('id', '').replace('club', '').replace('public', '').replace(' ', '');
   
   let numericId = parseInt(cleanIdStr, 10);
   if (isNaN(numericId)) throw new Error('ВК: ID должен быть числом.');
 
-  // Если в строке был "club" или "public" или "-", это точно группа
   const isExplicitGroup = ownerId.includes('-') || ownerId.includes('club') || ownerId.includes('public');
   if (isExplicitGroup && numericId > 0) numericId = -numericId;
 
   let attachment = "";
   let photoError = "";
 
-  if (image && image.startsWith('data:image')) {
+  if (image) {
     try {
       attachment = await uploadPhotoToVK(accessToken, numericId, image);
     } catch (e: any) {
       console.error("VK Image Upload Failed:", e.message);
-      photoError = ` (Картинка не загружена: ${e.message})`;
+      photoError = ` (Ошибка фото: ${e.message})`;
     }
   }
 
-  // Публикуем пост (даже если картинка не загрузилась)
   const postRes = await axios.post(`https://api.vk.com/method/wall.post`, null, {
     params: {
       access_token: accessToken,
@@ -104,8 +110,7 @@ async function publishToVK(accessToken: string, ownerId: string, message: string
   });
   
   if (postRes.data.error) {
-    const err = postRes.data.error;
-    throw new Error(`ВК: ${err.error_msg} (код ${err.error_code})`);
+    throw new Error(`ВК: ${postRes.data.error.error_msg}`);
   }
   
   return photoError ? { partial: true, error: photoError } : { success: true };
@@ -135,19 +140,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (account.platform === 'Telegram') {
         const botToken = account.credentials.botToken?.trim();
         const rawChatId = (account.credentials.chatId || '').toString().trim();
-
-        if (!botToken || !rawChatId) throw new Error('Данные не заполнены');
-
         let finalChatId: string | number = rawChatId;
-        if (/^-?\d+$/.test(rawChatId)) {
-          finalChatId = Number(rawChatId);
-        } else if (!rawChatId.startsWith('@')) {
-          finalChatId = `@${rawChatId}`;
-        }
+        if (/^-?\d+$/.test(rawChatId)) finalChatId = Number(rawChatId);
+        else if (!rawChatId.startsWith('@')) finalChatId = `@${rawChatId}`;
 
         const bot = new Telegraf(botToken);
-        if (image && image.startsWith('data:image')) {
-          const buffer = Buffer.from(image.split(',')[1], 'base64');
+        if (image) {
+          const buffer = await getImageBuffer(image);
           await bot.telegram.sendPhoto(finalChatId, { source: buffer }, { caption: text.slice(0, 1024) });
           if (text.length > 1024) await bot.telegram.sendMessage(finalChatId, text);
         } else {
@@ -158,23 +157,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else if (account.platform === 'VK') {
         const token = account.credentials.accessToken?.trim();
         const ownerId = (account.credentials.ownerId || '').toString().trim();
-        
         const vkRes = await publishToVK(token, ownerId, text, image);
-        
         results.push({ 
           platform: account.platform, 
           name: account.name, 
           status: vkRes.partial ? 'failed' : 'success', 
           error: vkRes.error || undefined 
         });
-
       } else {
         results.push({ platform: account.platform, name: account.name, status: 'failed', error: 'Platform not supported' });
       }
     } catch (e: any) {
-      let msg = e.message || 'Error';
-      if (msg.includes('chat not found')) msg = "ТГ: Чат не найден.";
-      results.push({ platform: account.platform, name: account.name, status: 'failed', error: msg });
+      results.push({ platform: account.platform, name: account.name, status: 'failed', error: e.message || 'Error' });
     }
   }
 
