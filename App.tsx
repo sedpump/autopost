@@ -131,7 +131,10 @@ const App: React.FC = () => {
       await addAccount({
         platform: newAccPlatform,
         name: newAccName,
-        credentials: newAccCreds
+        credentials: {
+          botToken: newAccCreds.botToken.trim(),
+          chatId: newAccCreds.chatId.trim()
+        }
       });
       setShowAddAccount(false);
       refreshData();
@@ -460,16 +463,24 @@ const App: React.FC = () => {
                      {deployResults ? (
                         <div className="space-y-3">
                            {deployResults.map((res: any, idx: number) => (
-                              <div key={idx} className={`p-4 rounded-2xl border flex items-center justify-between animate-in slide-in-from-right-4 duration-300 delay-[${idx*50}ms] ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-xl ${res.status === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
-                                       {res.status === 'success' ? <CheckCircle size={16}/> : <AlertCircle size={16}/>}
+                              <div key={idx} className={`p-4 rounded-2xl border flex flex-col gap-1 animate-in slide-in-from-right-4 duration-300 delay-[${idx*50}ms] ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                                 <div className="flex items-center justify-between w-full">
+                                    <div className="flex items-center gap-3">
+                                       <div className={`p-2 rounded-xl ${res.status === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                                          {res.status === 'success' ? <CheckCircle size={16}/> : <AlertCircle size={16}/>}
+                                       </div>
+                                       <div className="overflow-hidden">
+                                          <p className="text-xs font-bold text-white truncate">{res.name}</p>
+                                          <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status}</p>
+                                       </div>
                                     </div>
-                                    <div className="overflow-hidden">
-                                       <p className="text-xs font-bold text-white truncate">{res.name}</p>
-                                       <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status}</p>
-                                    </div>
+                                    {res.status === 'success' && <ExternalLink size={14} className="text-slate-600" />}
                                  </div>
+                                 {res.status === 'failed' && res.error && (
+                                   <p className="text-[10px] text-red-400 font-medium pl-10 line-clamp-2 mt-1 italic">
+                                     {res.error}
+                                   </p>
+                                 )}
                               </div>
                            ))}
                         </div>

@@ -35,7 +35,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     try {
       if (account.platform === 'Telegram') {
-        const { botToken, chatId } = account.credentials;
+        // Очищаем токен и ID от возможных пробелов
+        const botToken = account.credentials.botToken?.trim();
+        const chatId = account.credentials.chatId?.trim();
+
+        if (!botToken || !chatId) {
+          throw new Error('Bot Token or Chat ID is missing');
+        }
+
         const bot = new Telegraf(botToken);
 
         if (image && image.startsWith('data:image')) {
@@ -70,7 +77,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       results.push({ platform: account.platform, name: account.name, status, error: errorMessage });
     } catch (e: any) {
       console.error(`Publish error [${account.platform}]:`, e);
-      results.push({ platform: account.platform, name: account.name, status: 'failed', error: e.message });
+      // Формируем понятное сообщение об ошибке
+      const cleanError = e.description || e.message || 'Unknown network error';
+      results.push({ 
+        platform: account.platform, 
+        name: account.name, 
+        status: 'failed', 
+        error: `Telegram Error: ${cleanError}` 
+      });
     }
   }
 
