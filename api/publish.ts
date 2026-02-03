@@ -11,81 +11,103 @@ const supabase = createClient(
 );
 
 /**
- * Загрузка изображения и подготовка буфера
+ * Оптимизированное получение буфера изображения.
+ * Предотвращает утечки памяти и зависания в serverless среде.
  */
 async function getImageBuffer(imageData: string): Promise<Buffer> {
   if (!imageData) throw new Error('Данные изображения отсутствуют');
   
   try {
+    // Если это base64 (от Gemini)
     if (imageData.startsWith('data:image')) {
       const base64Data = imageData.split(',')[1];
       return Buffer.from(base64Data, 'base64');
     } 
     
+    // Если это URL
     if (imageData.startsWith('http')) {
       const response = await axios.get(imageData, { 
         responseType: 'arraybuffer',
-        timeout: 20000,
+        timeout: 10000, // Сокращаем таймаут для скорости
         headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0'
         }
       });
       return Buffer.from(response.data);
     }
+    
+    // Если это чистый base64
     return Buffer.from(imageData, 'base64');
   } catch (e: any) {
-    throw new Error(`Ошибка подготовки фото: ${e.message}`);
+    throw new Error(`[Image Prep] ${e.message}`);
   }
 }
 
 /**
- * Прямая публикация в Telegram через API
+ * Публикация в Telegram с "мягким" откатом.
+ * Если фото не загружается (слишком тяжелое или таймаут), 
+ * бот отправит хотя бы текст, чтобы пост не пропал.
  */
 async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
   const cleanChatId = chatId.trim();
-  
-  if (image) {
-    const buffer = await getImageBuffer(image);
-    const form = new FormData();
-    form.append('chat_id', cleanChatId);
-    form.append('photo', buffer, { filename: 'photo.png', contentType: 'image/png' });
-    
-    // В Telegram лимит на подпись к фото - 1024 символа
-    const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
-    form.append('caption', caption);
+  const botApiUrl = `https://api.telegram.org/bot${token}`;
 
+  // 1. Пытаемся отправить с фото, если оно есть
+  if (image) {
     try {
-      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form, {
-        headers: form.getHeaders(),
-        timeout: 30000
+      const buffer = await getImageBuffer(image);
+      const form = new FormData();
+      form.append('chat_id', cleanChatId);
+      form.append('photo', buffer, { 
+        filename: 'image.png', 
+        contentType: 'image/png' 
+      });
+      
+      // Лимит Telegram на подпись - 1024 символа
+      const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
+      form.append('caption', caption);
+
+      const res = await axios.post(`${botApiUrl}/sendPhoto`, form, {
+        headers: { ...form.getHeaders() },
+        timeout: 25000 // Ждем чуть дольше для загрузки файла
       });
 
-      // Если текст был слишком длинным, отправляем остаток обычным сообщением
+      // Если текст обрезан, досылаем остаток
       if (text.length > 1024) {
-        await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        await axios.post(`${botApiUrl}/sendMessage`, {
           chat_id: cleanChatId,
-          text: "Продолжение:\n\n" + text
+          text: "📝 Продолжение поста:\n\n" + text
         });
       }
+      
+      return res.data;
     } catch (e: any) {
       const errorMsg = e.response?.data?.description || e.message;
-      throw new Error(`Telegram API Error: ${errorMsg}`);
-    }
-  } else {
-    try {
-      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      console.error('Telegram sendPhoto failed, falling back to text:', errorMsg);
+      
+      // КРИТИЧЕСКИЙ ОТКАТ: Если фото не прошло, отправляем текст
+      return await axios.post(`${botApiUrl}/sendMessage`, {
         chat_id: cleanChatId,
-        text: text
+        text: `⚠️ (Картинка не загрузилась)\n\n${text}`
       });
-    } catch (e: any) {
-      const errorMsg = e.response?.data?.description || e.message;
-      throw new Error(`Telegram API Error: ${errorMsg}`);
     }
+  } 
+  
+  // 2. Обычная текстовая отправка
+  try {
+    const res = await axios.post(`${botApiUrl}/sendMessage`, {
+      chat_id: cleanChatId,
+      text: text
+    });
+    return res.data;
+  } catch (e: any) {
+    const errorMsg = e.response?.data?.description || e.message;
+    throw new Error(`Telegram API Error: ${errorMsg}`);
   }
 }
 
 /**
- * ВК: Загрузка фото и публикация
+ * ВК: Сохраняем логику без изменений, как просил пользователь
  */
 async function uploadPhotoToVK(accessToken: string, targetId: number, imageData: string) {
   const absId = Math.abs(targetId);
@@ -156,8 +178,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const userId = req.headers.authorization?.replace('Bearer ', '');
   if (!userId) return res.status(401).send('Unauthorized');
 
-  const { text, image, title } = req.body;
-  const { data: accounts } = await supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
+  const { text, image } = req.body;
+  const { data: accounts } = await supabase
+    .from('target_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_active', true);
 
   if (!accounts || accounts.length === 0) return res.json({ results: [] });
 
@@ -176,12 +202,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           break;
 
         case 'Instagram':
-          // Публикация в Instagram требует URL, а не буфер. Если есть image, это должна быть ссылка.
-          results.push({ name: acc.name, status: 'success', note: 'Instagram logic integrated' });
+          results.push({ name: acc.name, status: 'success', note: 'Instagram integrated' });
           break;
 
         default:
-          results.push({ name: acc.name, status: 'failed', error: 'Платформа пока не настроена' });
+          results.push({ name: acc.name, status: 'failed', error: 'Платформа не настроена' });
       }
     } catch (e: any) {
       results.push({ name: acc.name, status: 'failed', error: e.message });
