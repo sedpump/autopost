@@ -109,8 +109,10 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
   try {
     let attachments = '';
     
+    const hasImage = Boolean(image && String(image).trim());
+
     // Если есть картинка
-    if (image) {
+    if (hasImage) {
       if (!previewOnly) {
         // 1. Получаем сервер
         const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
@@ -145,7 +147,7 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       }
     }
 
-    if (image && !attachments) {
+    if (hasImage && !previewOnly && !attachments) {
       throw new Error("Не удалось сформировать attachments для изображения");
     }
 
