@@ -35,7 +35,10 @@ import {
   ShieldCheck,
   Bug,
   Instagram,
-  ZapOff
+  ZapOff,
+  Flame,
+  Layout,
+  Smartphone
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -67,6 +70,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [editableText, setEditableText] = useState('');
   const [deployResults, setDeployResults] = useState<any[] | null>(null);
   const [hasImageKey, setHasImageKey] = useState<boolean>(true);
   
@@ -223,9 +227,10 @@ const App: React.FC = () => {
       generatedImageUrl: testImage
     };
     setIsDeploying(true);
+    setEditableText(testArticle.rewrittenText || '');
     setSelectedArticle(testArticle); 
     try {
-      const result = await postToPlatforms(testArticle);
+      const result = await postToPlatforms({ ...testArticle, rewrittenText: testArticle.rewrittenText });
       setDeployResults(result.results);
     } catch (e: any) {
       alert("Ошибка: " + e.message);
@@ -254,6 +259,7 @@ const App: React.FC = () => {
         generatedImageUrl: imageUrl || undefined,
       };
       setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
+      setEditableText(variants[0].content);
       setDeployResults(null);
       setSelectedArticle(updatedArticle);
     } catch (error: any) {
@@ -265,10 +271,12 @@ const App: React.FC = () => {
 
   const handleSelectVariant = (index: number) => {
     if (!selectedArticle || !selectedArticle.rewrittenVariants) return;
+    const variant = selectedArticle.rewrittenVariants[index];
+    setEditableText(variant.content);
     setSelectedArticle({
       ...selectedArticle,
       selectedVariantIndex: index,
-      rewrittenText: selectedArticle.rewrittenVariants[index].content
+      rewrittenText: variant.content
     });
   };
 
@@ -276,7 +284,10 @@ const App: React.FC = () => {
     if (!selectedArticle) return;
     setIsDeploying(true);
     try {
-      const result = await postToPlatforms(selectedArticle);
+      const result = await postToPlatforms({ 
+        ...selectedArticle, 
+        rewrittenText: editableText 
+      });
       setDeployResults(result.results);
     } catch (e: any) {
       alert("Ошибка: " + e.message);
@@ -311,6 +322,9 @@ const App: React.FC = () => {
       case Platform.TELEGRAM: return <Send size={20} />;
       case Platform.VK: return <Globe size={20} />;
       case Platform.INSTAGRAM: return <Instagram size={20} />;
+      case Platform.DZEN: return <Layout size={20} />;
+      case Platform.TENCHAT: return <Smartphone size={20} />;
+      case Platform.PIKABU: return <Flame size={20} />;
       default: return <Zap size={20} />;
     }
   };
@@ -362,6 +376,12 @@ const App: React.FC = () => {
                   </button>
                 </div>
               ))}
+              {articles.length === 0 && !isFetching && (
+                <div className="col-span-full py-20 text-center text-slate-500">
+                   <div className="mb-4 inline-block p-4 bg-slate-900 rounded-full"><Info size={32}/></div>
+                   <p>Входящих публикаций нет. Добавьте источники Telegram.</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -442,9 +462,9 @@ const App: React.FC = () => {
             <p className="text-slate-500 text-sm mb-8">Выберите платформу и укажите данные доступа</p>
             
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-2 mb-4">
                  {Object.values(Platform).map(p => (
-                   <button key={p} onClick={() => setNewAccPlatform(p)} className={`py-4 rounded-2xl border font-bold text-sm flex items-center justify-center gap-2 transition-all ${newAccPlatform === p ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}>
+                   <button key={p} onClick={() => setNewAccPlatform(p)} className={`py-3 rounded-2xl border font-bold text-[10px] flex flex-col items-center justify-center gap-1 transition-all ${newAccPlatform === p ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' : 'bg-slate-900 border-slate-800 text-slate-500'}`}>
                      {renderAccountIcon(p)} {p}
                    </button>
                  ))}
@@ -463,7 +483,7 @@ const App: React.FC = () => {
                 <div className="space-y-3">
                   <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-2">
                     <Info size={14} className="inline mr-2 text-indigo-400" />
-                    Ключ берите во вкладке <b>Ключи доступа</b> (Access Tokens), не используйте Callback API.
+                    Ключ берите во вкладке <b>Ключи доступа</b>.
                   </div>
                   <input placeholder="Access Token (Ключ доступа)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                   <input placeholder="ID группы (с минусом, напр. -223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
@@ -485,7 +505,7 @@ const App: React.FC = () => {
 
               <div className="flex gap-4 mt-8">
                 <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
-                <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all">Сохранить</button>
+                <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Сохранить</button>
               </div>
             </div>
           </div>
@@ -495,7 +515,7 @@ const App: React.FC = () => {
       {(isProcessing || isDeploying) && (
         <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
            <div className="w-20 h-20 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-white text-xl font-black">Обработка...</p>
+           <p className="text-white text-xl font-black">{isDeploying ? 'Публикация контента...' : 'Нейросети обрабатывают контент...'}</p>
         </div>
       )}
 
@@ -503,20 +523,38 @@ const App: React.FC = () => {
          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl">
             <div className="glass w-full max-w-7xl max-h-[95vh] rounded-[48px] border border-white/5 overflow-hidden flex shadow-2xl animate-in slide-in-from-bottom-12">
                <div className="flex-1 p-14 overflow-y-auto border-r border-slate-800/50 flex flex-col">
-                  <h3 className="text-3xl font-black text-white mb-12">Студия контента</h3>
+                  <div className="flex justify-between items-center mb-12">
+                    <h3 className="text-3xl font-black text-white">Студия контента</h3>
+                    <div className="flex gap-2">
+                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать">
+                         <Sparkles size={20}/>
+                       </button>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                      <div className="lg:col-span-5 space-y-5">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Варианты от ИИ</label>
                         {selectedArticle.rewrittenVariants?.map((variant, idx) => (
-                           <button key={idx} onClick={() => handleSelectVariant(idx)} className={`w-full p-6 rounded-3xl border text-left transition-all ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/40 border-slate-800'}`}>
+                           <button key={idx} onClick={() => handleSelectVariant(idx)} className={`w-full p-6 rounded-3xl border text-left transition-all ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'}`}>
                               <h4 className="font-black text-[11px] uppercase text-indigo-400 mb-2">{variant.title}</h4>
-                              <p className="text-sm text-slate-300">{variant.content}</p>
+                              <p className="text-sm text-slate-300 line-clamp-3">{variant.content}</p>
                            </button>
                         ))}
                      </div>
                      <div className="lg:col-span-7 space-y-8">
-                        {selectedArticle.generatedImageUrl && <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" />}
-                        <div className="p-10 bg-slate-900/50 rounded-[40px] border border-slate-800">
-                           <p className="text-base text-slate-100 font-medium whitespace-pre-wrap">{selectedArticle.rewrittenText}</p>
+                        {selectedArticle.generatedImageUrl && (
+                          <div className="relative group">
+                            <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" />
+                            <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/10 transition-all rounded-[40px] pointer-events-none"></div>
+                          </div>
+                        )}
+                        <div className="space-y-3">
+                           <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Финальный текст (можно редактировать)</label>
+                           <textarea 
+                              value={editableText}
+                              onChange={(e) => setEditableText(e.target.value)}
+                              className="w-full min-h-[250px] p-10 bg-slate-900/50 rounded-[40px] border border-slate-800 text-base text-slate-100 font-medium whitespace-pre-wrap outline-none focus:border-indigo-500/50 transition-all resize-none"
+                           />
                         </div>
                      </div>
                   </div>
@@ -524,23 +562,27 @@ const App: React.FC = () => {
                <div className="w-[400px] p-12 bg-slate-950/60 backdrop-blur-md flex flex-col">
                   <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
                   <div className="flex-1 space-y-4">
+                     <h5 className="text-[10px] font-black uppercase text-slate-500 mb-4 px-2">Выбранные каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (
                         <div key={idx} className={`p-5 rounded-3xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-                           <p className="text-sm font-black text-white">{res.name}</p>
+                           <div className="flex justify-between items-center">
+                             <p className="text-sm font-black text-white">{res.name}</p>
+                             {res.status === 'success' ? <Check size={16} className="text-emerald-500"/> : <AlertCircle size={16} className="text-red-500"/>}
+                           </div>
                            <p className={`text-[10px] uppercase font-black ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
-                           {res.error && <p className="text-[10px] text-red-300/60 mt-2 line-clamp-2">{res.error}</p>}
+                           {res.error && <p className="text-[10px] text-red-300/60 mt-2 line-clamp-3 bg-red-950/20 p-2 rounded-xl">{res.error}</p>}
                         </div>
                      )) : accounts.map(acc => (
-                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">
+                        <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between hover:bg-slate-900 transition-all">
                            <span className="text-sm font-bold text-white">{acc.name}</span>
                            <div className="text-slate-700">{renderAccountIcon(acc.platform)}</div>
                         </div>
                      ))}
                   </div>
                   {!deployResults ? (
-                    <button onClick={handleDeploy} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs">Опубликовать</button>
+                    <button onClick={handleDeploy} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs shadow-xl shadow-indigo-600/30 transition-all active:scale-95">Опубликовать во всех</button>
                   ) : (
-                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs">Готово</button>
+                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Готово</button>
                   )}
                </div>
             </div>
