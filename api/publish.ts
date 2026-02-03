@@ -4,27 +4,85 @@ import { createClient } from '@supabase/supabase-js';
 import { Telegraf } from 'telegraf';
 import { Buffer } from 'buffer';
 import axios from 'axios';
+import FormData from 'form-data';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || '',
   process.env.SUPABASE_ANON_KEY || ''
 );
 
-async function publishToVK(accessToken: string, ownerId: string, message: string) {
-  const rawId = ownerId.trim().toLowerCase()
+async function uploadPhotoToVK(accessToken: string, ownerId: number, base64Image: string) {
+  try {
+    const isGroup = ownerId < 0;
+    const cleanOwnerId = Math.abs(ownerId);
+
+    // 1. Получаем сервер для загрузки
+    const getUploadServerUrl = `https://api.vk.com/method/photos.getWallUploadServer`;
+    const serverRes = await axios.get(getUploadServerUrl, {
+      params: {
+        access_token: accessToken,
+        group_id: isGroup ? cleanOwnerId : undefined,
+        v: '5.131'
+      }
+    });
+
+    if (serverRes.data.error) throw new Error(`VK Upload Server Error: ${serverRes.data.error.error_msg}`);
+    const uploadUrl = serverRes.data.response.upload_url;
+
+    // 2. Загружаем файл
+    const buffer = Buffer.from(base64Image.split(',')[1], 'base64');
+    const form = new FormData();
+    form.append('photo', buffer, { filename: 'image.png' });
+
+    const uploadRes = await axios.post(uploadUrl, form, {
+      headers: form.getHeaders()
+    });
+
+    // 3. Сохраняем фото на стену
+    const saveUrl = `https://api.vk.com/method/photos.saveWallPhoto`;
+    const saveRes = await axios.get(saveUrl, {
+      params: {
+        access_token: accessToken,
+        group_id: isGroup ? cleanOwnerId : undefined,
+        user_id: !isGroup ? cleanOwnerId : undefined,
+        photo: uploadRes.data.photo,
+        server: uploadRes.data.server,
+        hash: uploadRes.data.hash,
+        v: '5.131'
+      }
+    });
+
+    if (saveRes.data.error) throw new Error(`VK Photo Save Error: ${saveRes.data.error.error_msg}`);
+    const photo = saveRes.data.response[0];
+    return `photo${photo.owner_id}_${photo.id}`;
+  } catch (e: any) {
+    console.error("VK Image Upload Failed:", e.message);
+    return null; // Если не вышло — постим без картинки
+  }
+}
+
+async function publishToVK(accessToken: string, ownerId: string, message: string, image?: string) {
+  let rawId = ownerId.trim().toLowerCase()
     .replace('id', '')
     .replace('club', '')
     .replace('public', '');
   
-  const numericOwnerId = parseInt(rawId, 10);
+  let numericOwnerId = parseInt(rawId, 10);
+  if (isNaN(numericOwnerId)) throw new Error('ВК: ID должен быть числом.');
 
-  if (isNaN(numericOwnerId)) {
-    throw new Error('Owner ID должен быть числом.');
+  // Почти всегда посты идут в группы, а группы — это отрицательные ID.
+  // Если пользователь ввел "123", а это группа, ВК не поймет. Мы страхуемся.
+  const isGroup = numericOwnerId < 0 || ownerId.includes('-') || ownerId.startsWith('club') || ownerId.startsWith('public');
+  if (isGroup && numericOwnerId > 0) numericOwnerId = -numericOwnerId;
+
+  // Если есть картинка — пробуем загрузить её сначала
+  let attachment = "";
+  if (image && image.startsWith('data:image')) {
+    const photoId = await uploadPhotoToVK(accessToken, numericOwnerId, image);
+    if (photoId) attachment = photoId;
   }
 
-  const isGroup = numericOwnerId < 0;
   const url = `https://api.vk.com/method/wall.post`;
-  
   try {
     const response = await axios.post(url, null, {
       params: {
@@ -32,24 +90,26 @@ async function publishToVK(accessToken: string, ownerId: string, message: string
         owner_id: numericOwnerId,
         from_group: isGroup ? 1 : 0,
         message: message,
+        attachments: attachment,
         v: '5.131'
       }
     });
     
     if (response.data.error) {
       const err = response.data.error;
-      if (err.error_code === 5) {
-        throw new Error('Неверный токен ВК. Убедитесь, что вы используете "Токен пользователя" или "Токен сообщества" с правами wall и offline.');
+      
+      if (err.error_code === 15) {
+        throw new Error(`ВК Доступ запрещен (Код 15). Ключу не хватает прав "wall" (стена) или "photos" (если есть картинка). Также проверьте, являетесь ли вы админом группы ${numericOwnerId}.`);
       }
-      if (err.error_code === 15 || err.error_msg.includes('denied')) {
-        throw new Error('Доступ запрещен. Убедитесь, что у токена есть права "wall" и вы являетесь администратором группы.');
+      if (err.error_code === 100) {
+        throw new Error(`ВК Параметр передан неверно (Код 100). Проверьте ID группы/пользователя: ${ownerId}`);
       }
-      throw new Error(`Ошибка ВК: ${err.error_msg}`);
+      throw new Error(`ВК: ${err.error_msg} (Код: ${err.error_code})`);
     }
     return response.data;
   } catch (e: any) {
     if (e.message.includes('ВК')) throw e;
-    throw new Error(`Ошибка сети при связи с ВК: ${e.message}`);
+    throw new Error(`Сетевая ошибка ВК: ${e.message}`);
   }
 }
 
@@ -83,10 +143,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!botToken || !chatId) throw new Error('Bot Token или Chat ID отсутствуют');
 
-        if (!chatId.startsWith('@') && !chatId.startsWith('-') && isNaN(Number(chatId))) {
-          chatId = `@${chatId}`;
-        }
-
         const bot = new Telegraf(botToken);
         if (image && image.startsWith('data:image')) {
           const buffer = Buffer.from(image.split(',')[1], 'base64');
@@ -104,9 +160,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const token = account.credentials.accessToken?.trim();
         const ownerId = account.credentials.ownerId?.trim() || '';
         
-        if (!token || !ownerId) throw new Error('VK Access Token или Owner ID отсутствуют');
+        if (!token || !ownerId) throw new Error('VK Ключ или ID отсутствуют');
         
-        await publishToVK(token, ownerId, text);
+        await publishToVK(token, ownerId, text, image);
         status = 'success';
       } else {
         status = 'pending_integration';
