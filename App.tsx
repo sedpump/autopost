@@ -180,17 +180,27 @@ const App: React.FC = () => {
   };
 
   const handleSaveAccount = async () => {
+    // Автоматическая коррекция Chat ID для Telegram
+    let finalCreds = { ...newAccCreds };
+    if (newAccPlatform === Platform.TELEGRAM && finalCreds.chatId) {
+      let cid = finalCreds.chatId.trim();
+      // Если это не число и не начинается с @, добавляем @
+      if (!cid.startsWith('@') && !cid.startsWith('-') && isNaN(Number(cid))) {
+        finalCreds.chatId = `@${cid}`;
+      }
+    }
+
     try {
       if (editingAccount) {
         await updateAccount(editingAccount.id, {
           name: newAccName,
-          credentials: newAccCreds
+          credentials: finalCreds
         });
       } else {
         await addAccount({
           platform: newAccPlatform,
           name: newAccName,
-          credentials: newAccCreds
+          credentials: finalCreds
         });
       }
       setShowAddAccount(false);
@@ -215,15 +225,16 @@ const App: React.FC = () => {
       alert("Сначала подключите хотя бы один аккаунт");
       return;
     }
-    const testImage = "https://cdn.midjourney.com/6886e6ce-bffa-45b1-a011-b1e47dcbc717/0_0.png";
+    // Тот самый мем из скрина
+    const testImage = "https://raw.githubusercontent.com/otter-stuff/memes/main/ebat.jpg";
     const testArticle: Article = {
       id: 'debug_' + Date.now(),
       userId: user?.id || '',
       source: 'OmniPost Debug',
-      originalText: 'Тестовая публикация',
+      originalText: 'Тестовая публикация с мемом',
       timestamp: new Date().toISOString(),
       status: 'approved',
-      rewrittenText: `🚀 Тестовый прогон OmniPost AI\nСтатус: OK\nВремя: ${new Date().toLocaleTimeString()}`,
+      rewrittenText: `🚀 ТЕСТОВЫЙ ПОСТ (Debug Mode)\n\nВсе системы работают штатно. Картинка должна быть ниже.\n\nВремя: ${new Date().toLocaleTimeString()}`,
       generatedImageUrl: testImage
     };
     setIsDeploying(true);

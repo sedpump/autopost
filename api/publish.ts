@@ -11,7 +11,7 @@ const supabase = createClient(
 );
 
 /**
- * Получение буфера изображения.
+ * Получение буфера изображения с имитацией браузера.
  */
 async function getImageBuffer(imageData: string): Promise<Buffer | null> {
   if (!imageData) return null;
@@ -23,20 +23,23 @@ async function getImageBuffer(imageData: string): Promise<Buffer | null> {
     if (imageData.startsWith('http')) {
       const response = await axios.get(imageData, { 
         responseType: 'arraybuffer',
-        timeout: 10000
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        }
       });
       return Buffer.from(response.data);
     }
     return Buffer.from(imageData, 'base64');
-  } catch (e) {
-    console.error('Image buffer failed:', e);
+  } catch (e: any) {
+    console.error('Image processing failed:', e.message);
     return null;
   }
 }
 
 /**
  * Чистая функция отправки в Telegram через Axios.
- * Никакой магии с ID, только trim.
  */
 async function publishToTelegram(token: string, chatId: string, text: string, image?: string) {
   const cleanToken = token.trim();
@@ -57,7 +60,7 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
 
         await axios.post(`${botApiUrl}/sendPhoto`, form, {
           headers: form.getHeaders(),
-          timeout: 30000
+          timeout: 40000
         });
 
         // Если текст длинный, досылаем остаток вторым сообщением
@@ -78,7 +81,6 @@ async function publishToTelegram(token: string, chatId: string, text: string, im
     });
 
   } catch (e: any) {
-    // Вытаскиваем детальное описание ошибки от Telegram (например "chat not found")
     const tgError = e.response?.data?.description || e.message;
     throw new Error(`Telegram: ${tgError}`);
   }
@@ -112,7 +114,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
         results.push({ name: acc.name, status: 'success' });
       } else {
-        // Другие платформы не трогаем по просьбе пользователя
         results.push({ name: acc.name, status: 'idle', note: 'Focus on Telegram' });
       }
     } catch (e: any) {
