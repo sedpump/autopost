@@ -32,8 +32,7 @@ import {
   ShieldAlert,
   Key,
   Edit2,
-  ShieldCheck,
-  Image
+  ShieldCheck
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -189,7 +188,6 @@ const App: React.FC = () => {
         creds.chatId = cleanChatId;
       } else if (newAccPlatform === Platform.VK) {
         let rawId = newAccCreds.ownerId.trim();
-        // Автоматически добавляем минус для групп если его нет
         if (rawId && !rawId.startsWith('-') && !isNaN(Number(rawId))) {
           rawId = `-${rawId}`;
         }
@@ -376,12 +374,6 @@ const App: React.FC = () => {
         <div className="p-10 max-w-7xl mx-auto">
           {activeTab === 'inbox' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {articles.length === 0 && !isFetching && (
-                <div className="col-span-full py-20 flex flex-col items-center opacity-50">
-                  <Inbox size={48} className="mb-4 text-slate-700" />
-                  <p className="text-slate-500">Лента пуста. Добавьте Telegram-каналы во вкладке "Источники".</p>
-                </div>
-              )}
               {articles.map(article => (
                 <div key={article.id} className="glass p-8 rounded-[32px] border border-slate-800/50 flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 transition-all hover:border-indigo-500/30 group">
                   <div className="flex justify-between items-center mb-6">
@@ -541,7 +533,7 @@ const App: React.FC = () => {
                                 <div className="p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
                                    <p className="text-[10px] font-black text-indigo-400 uppercase flex items-center gap-2 mb-2"><Globe size={14}/> Способ 1: Для сообщества</p>
                                    <p className="text-[9px] text-slate-400 leading-tight">
-                                      Управление -> Работа с API -> Создать ключ. 
+                                      Управление &rarr; Работа с API &rarr; Создать ключ. 
                                       <b>ОБЯЗАТЕЛЬНО</b> отметьте: <br/>
                                       <span className="text-white font-bold">Стена, Фотографии</span>.
                                    </p>
