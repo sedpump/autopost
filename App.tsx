@@ -26,7 +26,8 @@ import {
   ExternalLink,
   Check,
   Layers,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -63,7 +64,7 @@ const App: React.FC = () => {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccPlatform, setNewAccPlatform] = useState<Platform>(Platform.TELEGRAM);
   const [newAccName, setNewAccName] = useState('');
-  const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '' });
+  const [newAccCreds, setNewAccCreds] = useState({ botToken: '', chatId: '', accessToken: '', ownerId: '' });
 
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -119,7 +120,7 @@ const App: React.FC = () => {
       const userData = await login(username);
       setUser(userData);
     } catch (e) {
-      alert("Login failed");
+      alert("Ошибка входа");
     } finally {
       setAuthLoading(false);
     }
@@ -133,39 +134,44 @@ const App: React.FC = () => {
       setNewSourceUrl('');
       refreshData();
     } catch (e) {
-      alert("Failed to add source");
+      alert("Не удалось добавить источник");
     }
   };
 
   const handleDeleteSource = async (id: string) => {
-    if (!confirm("Are you sure?")) return;
+    if (!confirm("Вы уверены?")) return;
     try {
       await deleteSource(id);
       refreshData();
     } catch (e) {
-      alert("Failed to delete source");
+      alert("Ошибка удаления");
     }
   };
 
   const handleAddAccount = async () => {
-    let cleanChatId = newAccCreds.chatId.trim();
-    if (newAccPlatform === Platform.TELEGRAM && !cleanChatId.startsWith('@') && !cleanChatId.startsWith('-') && isNaN(Number(cleanChatId))) {
-      cleanChatId = `@${cleanChatId}`;
-    }
-
     try {
+      const creds: any = {};
+      if (newAccPlatform === Platform.TELEGRAM) {
+        let cleanChatId = newAccCreds.chatId.trim();
+        if (!cleanChatId.startsWith('@') && !cleanChatId.startsWith('-') && isNaN(Number(cleanChatId))) {
+          cleanChatId = `@${cleanChatId}`;
+        }
+        creds.botToken = newAccCreds.botToken.trim();
+        creds.chatId = cleanChatId;
+      } else if (newAccPlatform === Platform.VK) {
+        creds.accessToken = newAccCreds.accessToken.trim();
+        creds.ownerId = newAccCreds.ownerId.trim();
+      }
+
       await addAccount({
         platform: newAccPlatform,
         name: newAccName,
-        credentials: {
-          botToken: newAccCreds.botToken.trim(),
-          chatId: cleanChatId
-        }
+        credentials: creds
       });
       setShowAddAccount(false);
       refreshData();
     } catch (e) {
-      alert("Error adding account");
+      alert("Ошибка при добавлении аккаунта");
     }
   };
 
@@ -184,7 +190,7 @@ const App: React.FC = () => {
           imageUrl = await generateImageForArticle(keywords.join(", "));
         }
       } catch (imgError) {
-        console.warn("Image generation failed", imgError);
+        console.warn("Ошибка генерации изображения", imgError);
       }
       
       const updatedArticle: Article = {
@@ -192,7 +198,7 @@ const App: React.FC = () => {
         status: 'approved',
         rewrittenVariants: variants,
         selectedVariantIndex: 0,
-        rewrittenText: variants[0].content, // Default
+        rewrittenText: variants[0].content,
         generatedImageUrl: imageUrl || undefined,
       };
 
@@ -200,7 +206,7 @@ const App: React.FC = () => {
       setDeployResults(null);
       setSelectedArticle(updatedArticle);
     } catch (error: any) {
-      alert("AI Error: " + error.message);
+      alert("Ошибка ИИ: " + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -222,7 +228,7 @@ const App: React.FC = () => {
       const result = await postToPlatforms(selectedArticle);
       setDeployResults(result.results);
     } catch (e: any) {
-      alert("Deployment failed: " + e.message);
+      alert("Ошибка публикации: " + e.message);
     } finally {
       setIsDeploying(false);
     }
@@ -237,12 +243,12 @@ const App: React.FC = () => {
               <Lock className="text-white w-8 h-8" />
             </div>
             <h1 className="text-3xl font-black text-white mb-2">OmniPost AI</h1>
-            <p className="text-slate-400 text-center">Cloud Content Distribution System</p>
+            <p className="text-slate-400 text-center">Система автоматического постинга</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <input 
               type="text" 
-              placeholder="Username" 
+              placeholder="Имя пользователя" 
               value={username}
               onChange={e => setUsername(e.target.value)}
               className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl px-6 py-4 focus:border-indigo-500 outline-none text-white"
@@ -251,7 +257,7 @@ const App: React.FC = () => {
               disabled={authLoading}
               className="w-full bg-indigo-600 hover:bg-indigo-500 py-4 rounded-2xl font-bold text-white transition-all flex items-center justify-center gap-2"
             >
-              {authLoading ? <Loader2 className="animate-spin" /> : "Sign In"}
+              {authLoading ? <Loader2 className="animate-spin" /> : "Войти"}
             </button>
           </form>
         </div>
@@ -272,45 +278,46 @@ const App: React.FC = () => {
         
         <nav className="flex-1 space-y-1.5">
           <button onClick={() => setActiveTab('inbox')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inbox' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Inbox size={20} /> <span className="font-medium">Inbound Feed</span>
+            <Inbox size={20} /> <span className="font-medium">Входящие</span>
           </button>
           <button onClick={() => setActiveTab('sources')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sources' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Link2 size={20} /> <span className="font-medium">Cloud Sources</span>
+            <Link2 size={20} /> <span className="font-medium">Источники</span>
           </button>
           <button onClick={() => setActiveTab('accounts')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'accounts' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <UserCheck size={20} /> <span className="font-medium">Integrations</span>
+            <UserCheck size={20} /> <span className="font-medium">Аккаунты</span>
           </button>
           <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <SettingsIcon size={20} /> <span className="font-medium">System Settings</span>
+            <SettingsIcon size={20} /> <span className="font-medium">Настройки</span>
           </button>
         </nav>
 
-        {!hasImageKey && (
+        {!hasImageKey && (activeTab === 'inbox') && (
           <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl">
              <div className="flex items-center gap-2 mb-2">
                 <AlertCircle size={14} className="text-amber-500" />
-                <p className="text-[10px] text-amber-500 font-bold uppercase">Image Key Required</p>
+                <p className="text-[10px] text-amber-500 font-bold uppercase">Нужен платный ключ</p>
              </div>
-             <p className="text-[9px] text-slate-500 mb-3 leading-tight">Gemini 3 Pro Image generation requires a paid billing project.</p>
-             <button onClick={handleOpenAiStudio} className="w-full py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 text-[10px] font-black rounded-lg transition-all">SELECT PAID KEY</button>
-             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="block text-center mt-2 text-[8px] text-slate-600 hover:text-slate-400 underline">Billing Documentation</a>
+             <p className="text-[9px] text-slate-500 mb-3 leading-tight">Для генерации Gemini 3 Pro Image требуется проект с биллингом.</p>
+             <button onClick={handleOpenAiStudio} className="w-full py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 text-[10px] font-black rounded-lg transition-all">ВЫБРАТЬ КЛЮЧ</button>
           </div>
         )}
 
         <button onClick={() => setUser(null)} className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-400/5 transition-all">
-          <LogOut size={20} /> <span className="font-medium">Sign Out</span>
+          <LogOut size={20} /> <span className="font-medium">Выйти</span>
         </button>
       </aside>
 
       <main className="flex-1 overflow-y-auto relative bg-slate-950/50">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
           <div className="flex items-center gap-3">
-             <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
-             {activeTab === 'inbox' && <span className="bg-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">{articles.length} New</span>}
+             <h2 className="text-lg font-bold text-white capitalize">
+               {activeTab === 'inbox' ? 'Лента контента' : activeTab === 'sources' ? 'Источники данных' : activeTab === 'accounts' ? 'Интеграции' : 'Настройки'}
+             </h2>
+             {activeTab === 'inbox' && articles.length > 0 && <span className="bg-indigo-500/20 text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">Новых: {articles.length}</span>}
           </div>
           <div className="flex items-center gap-4">
             {isFetching && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
-            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 tracking-widest hover:bg-indigo-500/10 transition-all">REFRESH CLOUD</button>
+            <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 tracking-widest hover:bg-indigo-500/10 transition-all uppercase">Обновить ленту</button>
           </div>
         </header>
 
@@ -320,7 +327,7 @@ const App: React.FC = () => {
               {articles.length === 0 && !isFetching && (
                 <div className="col-span-full py-20 flex flex-col items-center opacity-50">
                   <Inbox size={48} className="mb-4 text-slate-700" />
-                  <p className="text-slate-500">Your feed is empty. Monitor Telegram channels to begin.</p>
+                  <p className="text-slate-500">Лента пуста. Добавьте Telegram-каналы во вкладке "Источники".</p>
                 </div>
               )}
               {articles.map(article => (
@@ -331,7 +338,7 @@ const App: React.FC = () => {
                   </div>
                   <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1 line-clamp-6 group-hover:line-clamp-none transition-all duration-500">{article.originalText}</p>
                   <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/10">
-                    <Sparkles size={16} /> Process with Gemini 3 Pro
+                    <Sparkles size={16} /> Обработать через Gemini 3 Pro
                   </button>
                 </div>
               ))}
@@ -341,22 +348,22 @@ const App: React.FC = () => {
           {activeTab === 'sources' && (
             <div className="space-y-10">
               <div className="max-w-2xl">
-                <h3 className="text-2xl font-bold text-white mb-2">Cloud Monitoring</h3>
-                <p className="text-slate-500 text-sm mb-8">Add Telegram channels to monitor for fresh content. System parses the last 3 messages from each.</p>
+                <h3 className="text-2xl font-bold text-white mb-2">Облачный мониторинг</h3>
+                <p className="text-slate-500 text-sm mb-8">Добавьте Telegram-каналы для автоматического сбора контента.</p>
                 
                 <form onSubmit={handleAddSource} className="flex gap-3">
                   <div className="relative flex-1">
                     <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
                     <input 
                       type="text" 
-                      placeholder="Telegram username (e.g. techcrunch)"
+                      placeholder="Username канала (напр. techcrunch)"
                       value={newSourceUrl}
                       onChange={e => setNewSourceUrl(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-12 pr-6 py-4 text-white focus:border-indigo-500 outline-none transition-all"
                     />
                   </div>
                   <button className="bg-indigo-600 hover:bg-indigo-500 px-8 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20">
-                    <Plus size={20} /> Add Channel
+                    <Plus size={20} /> Добавить
                   </button>
                 </form>
               </div>
@@ -373,7 +380,7 @@ const App: React.FC = () => {
                           <h4 className="font-bold text-white">{source.url}</h4>
                           <div className="flex items-center gap-1.5 text-[10px] text-emerald-500 font-bold uppercase mt-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Monitoring Active
+                            Мониторинг активен
                           </div>
                         </div>
                       </div>
@@ -394,14 +401,14 @@ const App: React.FC = () => {
             <div className="space-y-6">
               <div className="flex justify-between items-center mb-8">
                 <div>
-                  <h3 className="text-2xl font-bold text-white">Target Platforms</h3>
-                  <p className="text-slate-500 text-sm">Where your content will be automatically distributed.</p>
+                  <h3 className="text-2xl font-bold text-white">Каналы публикации</h3>
+                  <p className="text-slate-500 text-sm">Настройте свои площадки для автоматического постинга.</p>
                 </div>
                 <button 
                   onClick={() => setShowAddAccount(true)}
                   className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
                 >
-                  <Plus size={20} /> New Integration
+                  <Plus size={20} /> Новая интеграция
                 </button>
               </div>
 
@@ -414,11 +421,11 @@ const App: React.FC = () => {
                       </div>
                       <button onClick={() => deleteAccount(acc.id)} className="text-slate-600 hover:text-red-400 transition-all p-2"><Trash2 size={16}/></button>
                     </div>
-                    <h4 className="font-bold text-white text-lg">{acc.name || 'Account Integration'}</h4>
+                    <h4 className="font-bold text-white text-lg">{acc.name || 'Аккаунт'}</h4>
                     <p className="text-slate-500 text-xs mb-4 uppercase tracking-widest font-black">{acc.platform}</p>
                     <div className="mt-auto flex items-center gap-2 text-emerald-500 text-[10px] font-black uppercase">
                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                      Connected
+                      Подключено
                     </div>
                   </div>
                 ))}
@@ -427,10 +434,10 @@ const App: React.FC = () => {
               {showAddAccount && (
                 <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-6">
                   <div className="glass w-full max-w-md p-10 rounded-[40px] border border-white/5 shadow-2xl animate-in zoom-in duration-300">
-                    <h3 className="text-2xl font-bold text-white mb-8">Connect Platform</h3>
+                    <h3 className="text-2xl font-bold text-white mb-8">Подключить платформу</h3>
                     <div className="space-y-4">
                       <div className="space-y-1">
-                         <p className="text-[10px] font-black text-slate-500 uppercase px-2 mb-1">Select Network</p>
+                         <p className="text-[10px] font-black text-slate-500 uppercase px-2 mb-1">Выберите сеть</p>
                          <select 
                             value={newAccPlatform}
                             onChange={e => setNewAccPlatform(e.target.value as Platform)}
@@ -440,30 +447,53 @@ const App: React.FC = () => {
                           </select>
                       </div>
                       <input 
-                        placeholder="Integration Name (e.g. Official Channel)"
+                        placeholder="Название (напр. Личный блог)"
                         value={newAccName}
                         onChange={e => setNewAccName(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                       />
+                      
                       {newAccPlatform === Platform.TELEGRAM && (
                         <>
                           <input 
-                            placeholder="Bot Token (from @BotFather)"
+                            placeholder="Bot Token (от @BotFather)"
                             value={newAccCreds.botToken}
                             onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})}
                             className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                           />
                           <input 
-                            placeholder="Chat ID or @username"
+                            placeholder="Chat ID (напр. @mychannel)"
                             value={newAccCreds.chatId}
                             onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})}
                             className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
                           />
                         </>
                       )}
+
+                      {newAccPlatform === Platform.VK && (
+                        <>
+                          <input 
+                            placeholder="VK Access Token"
+                            value={newAccCreds.accessToken}
+                            onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
+                          />
+                          <input 
+                            placeholder="Owner ID (напр. -12345678 для группы)"
+                            value={newAccCreds.ownerId}
+                            onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none focus:border-indigo-500"
+                          />
+                          <div className="flex gap-2 items-start p-4 bg-indigo-500/5 rounded-2xl border border-indigo-500/10">
+                             <Info size={14} className="text-indigo-400 mt-0.5" />
+                             <p className="text-[10px] text-slate-500 leading-tight">Для сообществ ID должен начинаться с минуса.</p>
+                          </div>
+                        </>
+                      )}
+
                       <div className="flex gap-4 mt-8">
-                        <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Cancel</button>
-                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Save Integration</button>
+                        <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
+                        <button onClick={handleAddAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Сохранить</button>
                       </div>
                     </div>
                   </div>
@@ -483,10 +513,10 @@ const App: React.FC = () => {
            </div>
            <div className="text-center space-y-2">
               <p className="text-white text-xl font-black tracking-tight">
-                {isDeploying ? "Deploying Post Content" : "Gemini 3 Pro is Thinking"}
+                {isDeploying ? "Публикация контента" : "Gemini 3 Pro анализирует контент"}
               </p>
               <p className="text-indigo-400 font-bold tracking-widest text-[10px] uppercase">
-                {isDeploying ? "Syncing with cloud targets..." : "Crafting variants & High-Res visuals..."}
+                {isDeploying ? "Синхронизация с облачными целями..." : "Создаем варианты и графику 1K..."}
               </p>
            </div>
         </div>
@@ -501,11 +531,11 @@ const App: React.FC = () => {
                <div className="flex-1 p-14 overflow-y-auto border-r border-slate-800/50 flex flex-col bg-slate-900/20">
                   <div className="flex justify-between items-center mb-12">
                     <div className="space-y-1">
-                       <h3 className="text-3xl font-black text-white tracking-tight">Content Studio</h3>
-                       <p className="text-slate-500 text-sm font-medium">Select the best style for your target audience.</p>
+                       <h3 className="text-3xl font-black text-white tracking-tight">Студия контента</h3>
+                       <p className="text-slate-500 text-sm font-medium">Выберите лучший стиль для вашей аудитории.</p>
                     </div>
                     <div className="flex items-center gap-2.5 px-4 py-2 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl text-indigo-400 text-xs font-black uppercase tracking-widest">
-                      <Sparkles size={14} className="animate-pulse" /> Gemini 3 Pro Engine
+                      <Sparkles size={14} className="animate-pulse" /> Движок Gemini 3 Pro
                     </div>
                   </div>
                   
@@ -513,7 +543,7 @@ const App: React.FC = () => {
                      {/* Variants List */}
                      <div className="lg:col-span-5 space-y-5">
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                           <Layers size={14} /> AI-Generated Variants
+                           <Layers size={14} /> Варианты от ИИ
                         </p>
                         {selectedArticle.rewrittenVariants?.map((variant, idx) => (
                            <button 
@@ -536,20 +566,20 @@ const App: React.FC = () => {
                      {/* Visual Preview */}
                      <div className="lg:col-span-7 space-y-8">
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                           <ImageIcon size={14} /> 1K Visual Graphic
+                           <ImageIcon size={14} /> Графика 1K
                         </p>
                         <div className="relative group rounded-[40px] overflow-hidden border border-slate-800 shadow-2xl shadow-black/40">
                           {selectedArticle.generatedImageUrl ? (
                             <>
                               <img src={selectedArticle.generatedImageUrl} className="w-full h-auto aspect-video object-cover transition-transform duration-1000 group-hover:scale-105" />
                               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-8">
-                                 <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest">Model: Gemini 3 Pro Image (1024x1024)</p>
+                                 <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest">Модель: Gemini 3 Pro Image (1024x1024)</p>
                               </div>
                             </>
                           ) : (
                             <div className="w-full aspect-video bg-slate-900 flex flex-col items-center justify-center text-slate-600">
                                <ImageIcon size={48} className="mb-4 opacity-10" />
-                               <span className="text-xs uppercase tracking-widest font-black">Visual logic offline</span>
+                               <span className="text-xs uppercase tracking-widest font-black">Графика не создана</span>
                             </div>
                           )}
                         </div>
@@ -557,7 +587,7 @@ const App: React.FC = () => {
                         <div className="p-10 bg-indigo-600/5 border border-indigo-500/10 rounded-[40px] relative overflow-hidden">
                            <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles size={40} /></div>
                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                              <ExternalLink size={12} /> Live Preview (Selected Style)
+                              <ExternalLink size={12} /> Предпросмотр текста
                            </p>
                            <p className="text-base text-slate-100 leading-relaxed font-medium whitespace-pre-wrap">
                               {selectedArticle.rewrittenText}
@@ -573,7 +603,7 @@ const App: React.FC = () => {
                   
                   <div className="flex-1 flex flex-col">
                      <div className="mb-8">
-                        <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-6">Distribution Targets</p>
+                        <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-6">Каналы рассылки</p>
                         
                         {deployResults ? (
                            <div className="space-y-4">
@@ -586,7 +616,7 @@ const App: React.FC = () => {
                                           </div>
                                           <div className="overflow-hidden">
                                              <p className="text-sm font-black text-white truncate">{res.name}</p>
-                                             <p className={`text-[10px] uppercase font-black tracking-widest ${res.status === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{res.status}</p>
+                                             <p className={`text-[10px] uppercase font-black tracking-widest ${res.status === 'success' ? 'Успешно' : 'Ошибка'}`}>{res.status === 'success' ? 'Успешно' : 'Ошибка'}</p>
                                           </div>
                                        </div>
                                     </div>
@@ -614,13 +644,6 @@ const App: React.FC = () => {
                                     <Globe size={16} className="text-slate-800 group-hover:text-indigo-500/50 transition-colors" />
                                  </div>
                               ))}
-                              {accounts.length === 0 && (
-                                <div className="p-8 bg-red-500/5 border border-red-500/10 rounded-[40px] text-center">
-                                  <AlertCircle size={32} className="mx-auto mb-4 text-red-400 opacity-20" />
-                                  <p className="text-xs text-red-400 font-black uppercase tracking-widest">Integrations Required</p>
-                                  <p className="text-[10px] text-red-400/60 mt-2">Please add target accounts first.</p>
-                                </div>
-                              )}
                            </div>
                         )}
                      </div>
@@ -632,14 +655,14 @@ const App: React.FC = () => {
                       onClick={handleDeploy}
                       className="w-full mt-auto py-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-900 disabled:text-slate-700 disabled:cursor-not-allowed rounded-[32px] font-black shadow-2xl shadow-indigo-600/30 transition-all flex items-center justify-center gap-3 text-white uppercase tracking-widest text-xs"
                     >
-                       <Send size={20} /> Deploy Selected Post
+                       <Send size={20} /> Опубликовать выбранный
                     </button>
                   ) : (
                     <button 
                       onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }}
                       className="w-full mt-auto py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black transition-all shadow-xl uppercase tracking-widest text-xs"
                     >
-                       Finish Distribution
+                       Завершить
                     </button>
                   )}
                </div>

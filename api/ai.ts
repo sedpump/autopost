@@ -8,7 +8,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { task, text, prompt } = req.body;
 
   if (!process.env.API_KEY) {
-    return res.status(500).json({ error: "API_KEY is not configured on the server." });
+    return res.status(500).json({ error: "API_KEY не настроен на сервере." });
   }
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -17,11 +17,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'rewrite') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Generate 3 distinct social media post variants for this article. 
-        Variant 1: Professional, expert and informative tone. 
-        Variant 2: Viral, engaging, creative with emojis and call-to-actions. 
-        Variant 3: Ultra-short, punchy "TL;DR" version.
-        Article: ${text}`,
+        contents: `Сгенерируй 3 разных варианта поста для соцсетей на основе этой статьи. ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
+        Вариант 1: Профессиональный, экспертный и информативный тон. 
+        Вариант 2: Виральный, вовлекающий, креативный с эмодзи и призывами к действию. 
+        Вариант 3: Ультра-короткий, формат "главное за 30 секунд".
+        Статья: ${text}`,
         config: { 
           temperature: 0.8,
           responseMimeType: "application/json",
@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'keywords') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Extract 3 main visual descriptive keywords for high-quality image generation from this text as a JSON array. Focus on metaphors and objects. Text: ${text}`,
+        contents: `Выдели 3 ключевых визуальных образа (на английском языке) для генерации качественной картинки к этому тексту. Ответ верни в формате JSON массива строк. Текст: ${text}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -70,11 +70,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (task === 'image') {
       try {
-        // Using 'gemini-3-pro-image-preview' for top-tier generation
         const response = await ai.models.generateContent({
           model: 'gemini-3-pro-image-preview',
           contents: { 
-            parts: [{ text: `A high-end, professional commercial 3D render illustration for a social media post: ${prompt}. Cinematic lighting, minimalist style, sharp focus, 8k resolution, clean background.` }] 
+            parts: [{ text: `A high-end, professional commercial 3D render illustration for a social media post about: ${prompt}. Cinematic lighting, minimalist style, sharp focus, 8k resolution, clean modern aesthetic.` }] 
           },
           config: { 
             imageConfig: { 
@@ -92,14 +91,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
         }
-        throw new Error("Model failed to provide image binary data.");
+        throw new Error("Модель не вернула данные изображения.");
       } catch (innerError: any) {
         console.error("Pro Image Generation Error:", innerError);
-        return res.status(500).json({ error: "Pro Image generation failed: " + innerError.message });
+        return res.status(500).json({ error: "Ошибка генерации Pro Image: " + innerError.message });
       }
     }
 
-    res.status(400).json({ error: "Unknown task" });
+    res.status(400).json({ error: "Неизвестная задача" });
   } catch (error: any) {
     console.error("AI API Error:", error);
     res.status(500).json({ error: error.message });
