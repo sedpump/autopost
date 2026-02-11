@@ -157,7 +157,6 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
       message: text || ''
     };
     
-    // Отправляем attachments только если они реально есть
     if (attachments) {
       postData.attachments = attachments;
     }
@@ -168,6 +167,56 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
     finalErr.debugData = e.debugData;
     if (photoLogs.length > 0) finalErr.message += ` (Доп. ошибки: ${photoLogs.join(', ')})`;
     throw finalErr;
+  }
+}
+
+async function publishToInstagram(accessToken: string, igUserId: string, text: string, image?: string, previewOnly: boolean = false) {
+  const token = accessToken.trim();
+  const userId = igUserId.trim();
+
+  // Instagram требует ПРЯМУЮ публичную ссылку на картинку. 
+  // Если у нас base64, API Meta её не примет напрямую.
+  // В данном решении мы предполагаем, что если картинка начинается на http - используем её.
+  // Иначе (base64) - выбрасываем ошибку с инструкцией.
+  if (image && image.startsWith('data:image')) {
+    throw new Error("Instagram требует публичную URL-ссылку на изображение. Base64 не поддерживается Meta API. Попробуйте использовать прямую ссылку или настройте облачное хранилище.");
+  }
+
+  const igPost = async (endpoint: string, params: any) => {
+    const url = `https://graph.facebook.com/v19.0/${endpoint}`;
+    const fullParams = { ...params, access_token: token };
+    
+    if (previewOnly) {
+       const err = new Error("PREVIEW_MODE") as any;
+       err.debugData = { request: `POST ${url}\n${JSON.stringify(fullParams)}`, response: "--- ПРЕДПРОСМОТРА ---" };
+       throw err;
+    }
+
+    try {
+      const response = await axios.post(url, fullParams, { timeout: 30000 });
+      return response.data;
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || err.message;
+      const error = new Error(`Instagram Error: ${msg}`) as any;
+      error.debugData = { request: `POST ${url}`, response: JSON.stringify(err.response?.data || {}, null, 2) };
+      throw error;
+    }
+  };
+
+  try {
+    // 1. Создаем медиа-контейнер
+    const container = await igPost(`${userId}/media`, {
+      image_url: image,
+      caption: text
+    });
+
+    // 2. Публикуем контейнер
+    await igPost(`${userId}/media_publish`, {
+      creation_id: container.id
+    });
+  } catch (e: any) {
+    if (e.message === "PREVIEW_MODE") throw e;
+    throw e;
   }
 }
 
@@ -192,6 +241,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
         if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
         results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью не поддерживается' : undefined });
+      } else if (p === 'INSTAGRAM' || p === 'ИНСТАГРАМ') {
+        await publishToInstagram(acc.credentials.accessToken, acc.credentials.igUserId, text, image, isPreview);
+        results.push({ name: acc.name, status: 'success' });
       }
     } catch (e: any) {
       results.push({ 

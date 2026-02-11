@@ -42,7 +42,8 @@ import {
   Copy,
   Terminal,
   Eye,
-  AlertTriangle
+  AlertTriangle,
+  Facebook
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -312,7 +313,7 @@ const App: React.FC = () => {
         if (debugRes) {
           setShowDebugModal(debugRes.debugData);
         } else {
-          alert("Для выбранных каналов технический предпросмотр недоступен (пока только для ВК)");
+          alert("Для выбранных каналов технический предпросмотр недоступен");
         }
       } else {
         setDeployResults(result.results);
@@ -498,7 +499,7 @@ const App: React.FC = () => {
                  ))}
               </div>
 
-              <input placeholder="Название для себя (напр. 'Мой паблик ВК')" value={newAccName} onChange={e => setNewAccName(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
+              <input placeholder="Название для себя (напр. 'Мой Инстаграм')" value={newAccName} onChange={e => setNewAccName(e.target.value)} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none" />
 
               {newAccPlatform === Platform.TELEGRAM && (
                 <div className="space-y-3">
@@ -510,37 +511,30 @@ const App: React.FC = () => {
               {newAccPlatform === Platform.VK && (
                 <div className="space-y-3">
                   <div className="p-5 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl text-[11px] text-slate-400 mb-4">
-                    <p className="font-bold text-indigo-400 mb-2 flex items-center gap-2"><Key size={14}/> Помощник получения токена:</p>
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl mb-4 flex items-start gap-2">
-                       <AlertTriangle className="text-red-400 shrink-0" size={16}/>
-                       <div className="text-[10px] text-red-200 leading-tight">
-                         <p className="font-bold mb-1">ОШИБКА INVALID SCOPE?</p>
-                         <p>Она возникает, если вы выбрали «Мини-приложение» или «Сайт». Нужно <b>Standalone-приложение</b>.</p>
-                       </div>
-                    </div>
-                    <p className="mb-2">1. Создайте приложение <b>типа Standalone</b> по этой ссылке:</p>
+                    <p className="font-bold text-indigo-400 mb-2 flex items-center gap-2"><Key size={14}/> Помощник ВК:</p>
                     <a href="https://vk.com/editapp?act=create" target="_blank" className="inline-flex items-center gap-1 text-indigo-400 font-bold hover:underline mb-4">
-                      vk.com/editapp?act=create <ExternalLink size={12}/>
+                      Создать Standalone приложение <ExternalLink size={12}/>
                     </a>
-                    <p className="mb-2">2. Введите <b>ID приложения</b> из раздела «Настройки»:</p>
                     <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="ID приложения" 
-                        value={vkAppId} 
-                        onChange={e => setVkAppId(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white outline-none text-xs"
-                      />
-                      <button 
-                        onClick={generateVkAuthLink}
-                        className="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-white font-bold transition-all text-[10px]"
-                      >
-                        Получить токен
-                      </button>
+                      <input type="text" placeholder="ID приложения" value={vkAppId} onChange={e => setVkAppId(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-white outline-none text-xs" />
+                      <button onClick={generateVkAuthLink} className="bg-indigo-600 px-4 py-2 rounded-xl text-white font-bold text-[10px]">Получить токен</button>
                     </div>
                   </div>
-                  <input placeholder="Access Token пользователя" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="Access Token" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                   <input placeholder="ID группы (напр. 223967249)" value={newAccCreds.ownerId || ''} onChange={e => setNewAccCreds({...newAccCreds, ownerId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                </div>
+              )}
+
+              {newAccPlatform === Platform.INSTAGRAM && (
+                <div className="space-y-3">
+                  <div className="p-5 bg-purple-500/5 border border-purple-500/10 rounded-2xl text-[11px] text-slate-400 mb-4">
+                    <p className="font-bold text-purple-400 mb-2 flex items-center gap-2"><Instagram size={14}/> Instagram Setup:</p>
+                    <p className="mb-2">1. Создайте приложение на <a href="https://developers.facebook.com" target="_blank" className="text-purple-400 underline">Facebook Developers</a></p>
+                    <p className="mb-2">2. Привяжите <b>Instagram Business</b> к вашей <b>FB Page</b>.</p>
+                    <p>3. Получите User Access Token с правами <b>instagram_content_publish</b>.</p>
+                  </div>
+                  <input placeholder="IG Business Account ID (17-значный код)" value={newAccCreds.igUserId || ''} onChange={e => setNewAccCreds({...newAccCreds, igUserId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
+                  <input placeholder="Meta Access Token (Долговечный)" value={newAccCreds.accessToken || ''} onChange={e => setNewAccCreds({...newAccCreds, accessToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-2xl px-6 py-4 text-white outline-none text-sm" />
                 </div>
               )}
 

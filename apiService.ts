@@ -9,30 +9,45 @@ const getAuthHeaders = () => {
   };
 };
 
+const handleResponse = async (response: Response) => {
+  const contentType = response.headers.get("content-type");
+  if (contentType && contentType.indexOf("application/json") !== -1) {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Ошибка сервера: ${response.status}`);
+    return data;
+  } else {
+    const text = await response.text();
+    if (!response.ok) throw new Error(`Ошибка сервера (${response.status}): ${text.substring(0, 100)}`);
+    return text;
+  }
+};
+
 export const login = async (username: string) => {
   const response = await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username })
   });
-  if (!response.ok) throw new Error('Auth failed');
-  return await response.json();
+  return handleResponse(response);
 };
 
 export const fetchInbox = async (): Promise<Article[]> => {
-  const response = await fetch('/api/articles', {
-    headers: getAuthHeaders()
-  });
-  if (!response.ok) return [];
-  return await response.json();
+  try {
+    const response = await fetch('/api/articles', { headers: getAuthHeaders() });
+    return await handleResponse(response);
+  } catch (e) {
+    console.error("Inbox fetch failed", e);
+    return [];
+  }
 };
 
 export const fetchSources = async (): Promise<Source[]> => {
-  const response = await fetch('/api/sources', {
-    headers: getAuthHeaders()
-  });
-  if (!response.ok) return [];
-  return await response.json();
+  try {
+    const response = await fetch('/api/sources', { headers: getAuthHeaders() });
+    return await handleResponse(response);
+  } catch (e) {
+    return [];
+  }
 };
 
 export const addSource = async (url: string): Promise<Source> => {
@@ -41,22 +56,24 @@ export const addSource = async (url: string): Promise<Source> => {
     headers: getAuthHeaders(),
     body: JSON.stringify({ url })
   });
-  if (!response.ok) throw new Error('Failed to add source');
-  return await response.json();
+  return handleResponse(response);
 };
 
 export const deleteSource = async (id: string) => {
-  await fetch(`/api/sources?id=${id}`, {
+  const response = await fetch(`/api/sources?id=${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
+  return handleResponse(response);
 };
 
 export const fetchAccounts = async (): Promise<Account[]> => {
-  const response = await fetch('/api/accounts', {
-    headers: getAuthHeaders()
-  });
-  return await response.json();
+  try {
+    const response = await fetch('/api/accounts', { headers: getAuthHeaders() });
+    return await handleResponse(response);
+  } catch (e) {
+    return [];
+  }
 };
 
 export const addAccount = async (accountData: any) => {
@@ -65,7 +82,7 @@ export const addAccount = async (accountData: any) => {
     headers: getAuthHeaders(),
     body: JSON.stringify(accountData)
   });
-  return await response.json();
+  return handleResponse(response);
 };
 
 export const updateAccount = async (id: string, accountData: any) => {
@@ -74,14 +91,15 @@ export const updateAccount = async (id: string, accountData: any) => {
     headers: getAuthHeaders(),
     body: JSON.stringify({ id, ...accountData })
   });
-  return await response.json();
+  return handleResponse(response);
 };
 
 export const deleteAccount = async (id: string) => {
-  await fetch(`/api/accounts?id=${id}`, {
+  const response = await fetch(`/api/accounts?id=${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
+  return handleResponse(response);
 };
 
 export const postToPlatforms = async (article: Article, preview: boolean = false) => {
@@ -95,10 +113,5 @@ export const postToPlatforms = async (article: Article, preview: boolean = false
     })
   });
   
-  // Даже если ошибка, пытаемся распарсить JSON, чтобы вытащить debugData
-  const data = await response.json();
-  if (!response.ok && !data.results) {
-    throw new Error(data.error || 'Publishing failed');
-  }
-  return data;
+  return handleResponse(response);
 };
