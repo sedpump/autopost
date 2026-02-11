@@ -45,7 +45,8 @@ import {
   AlertTriangle,
   Facebook,
   CloudUpload,
-  Image as ImageIconLucide
+  Image as ImageIconLucide,
+  Cpu
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -81,7 +82,6 @@ const App: React.FC = () => {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [editableText, setEditableText] = useState('');
   const [deployResults, setDeployResults] = useState<any[] | null>(null);
-  const [hasImageKey, setHasImageKey] = useState<boolean>(true);
   
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -94,16 +94,6 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [showDebugModal, setShowDebugModal] = useState<any>(null);
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-      if (typeof (window as any).aistudio !== 'undefined') {
-        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-        setHasImageKey(hasKey);
-      }
-    };
-    checkApiKey();
-  }, []);
 
   useEffect(() => {
     if (user) {
@@ -128,14 +118,6 @@ const App: React.FC = () => {
       console.error(e);
     } finally {
       setIsFetching(false);
-    }
-  };
-
-  const handleOpenAiStudio = async () => {
-    if (typeof (window as any).aistudio !== 'undefined') {
-      await (window as any).aistudio.openSelectKey();
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      setHasImageKey(hasKey);
     }
   };
 
@@ -262,7 +244,6 @@ const App: React.FC = () => {
   };
 
   const handleApprove = async (article: Article) => {
-    if (!hasImageKey) await handleOpenAiStudio();
     setIsProcessing(true);
     setProcessingStatus('Gemini анализирует контент...');
     try {
@@ -276,11 +257,10 @@ const App: React.FC = () => {
           const base64 = await generateImageForArticle(visualPromptData[0]);
           
           setProcessingStatus('Готовим публичную ссылку...');
-          // Загружаем картинку в Supabase Storage
           imageUrl = await uploadImage(base64);
         }
       } catch (imgError: any) {
-        console.error("Image gen/upload failed:", imgError.message);
+        console.error("Image gen failed:", imgError.message);
       }
       
       const updatedArticle: Article = {
@@ -409,7 +389,12 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto relative bg-slate-950/50">
         <header className="sticky top-0 z-10 glass px-10 py-5 flex justify-between items-center border-b border-slate-800/50">
           <h2 className="text-lg font-bold text-white capitalize">{activeTab}</h2>
-          <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
+          <div className="flex items-center gap-4">
+             <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+               <Cpu size={12}/> AI ACTIVE
+             </div>
+             <button onClick={refreshData} className="text-[10px] font-bold text-indigo-400 bg-indigo-500/5 px-4 py-2 rounded-full border border-indigo-500/20 uppercase">Обновить</button>
+          </div>
         </header>
 
         <div className="p-10 max-w-7xl mx-auto">
@@ -485,14 +470,9 @@ const App: React.FC = () => {
             <div className="max-w-xl glass p-10 rounded-[40px] border border-slate-800">
                <h3 className="text-2xl font-bold text-white mb-8">Настройки системы</h3>
                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-bold">Ключ Gemini 3 Pro</h4>
-                      <p className="text-xs text-slate-500">Для генерации картинок</p>
-                    </div>
-                    <button onClick={handleOpenAiStudio} className="bg-indigo-600/10 text-indigo-400 px-4 py-2 rounded-xl border border-indigo-500/20 font-bold text-xs uppercase">
-                      {hasImageKey ? "Обновить" : "Привязать"}
-                    </button>
+                  <div className="flex-1 p-5 bg-indigo-500/5 rounded-3xl border border-indigo-500/10">
+                    <h4 className="font-bold mb-2">Статус API Ключа</h4>
+                    <p className="text-xs text-slate-500">Ваш ключ настроен в Vercel и используется для генерации контента.</p>
                   </div>
                </div>
             </div>
