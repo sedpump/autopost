@@ -46,10 +46,11 @@ import {
   Facebook,
   CloudUpload,
   Image as ImageIconLucide,
-  Cpu
+  Cpu,
+  RefreshCw
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
-import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
+import { rewriteArticle, generateImageForArticle, extractVisualPrompt } from './geminiService';
 import { 
   login, 
   fetchInbox, 
@@ -94,6 +95,7 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [showDebugModal, setShowDebugModal] = useState<any>(null);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -243,8 +245,31 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRegenerateImage = async () => {
+    if (!selectedArticle) return;
+    setIsProcessing(true);
+    setGenError(null);
+    setProcessingStatus('Обновляем визуальный образ...');
+    try {
+      const visualPrompt = await extractVisualPrompt(editableText);
+      const base64 = await generateImageForArticle(visualPrompt);
+      setProcessingStatus('Загружаем в облако...');
+      const imageUrl = await uploadImage(base64);
+      
+      const updatedArticle = { ...selectedArticle, generatedImageUrl: imageUrl };
+      setSelectedArticle(updatedArticle);
+      setArticles(prev => prev.map(a => a.id === selectedArticle.id ? updatedArticle : a));
+    } catch (e: any) {
+      setGenError(e.message);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
   const handleApprove = async (article: Article) => {
     setIsProcessing(true);
+    setGenError(null);
     setProcessingStatus('Gemini анализирует контент...');
     try {
       const variants = await rewriteArticle(article.originalText);
@@ -252,15 +277,15 @@ const App: React.FC = () => {
       
       try {
         setProcessingStatus('Создаем визуальный образ...');
-        const visualPromptData = await extractKeyConcepts(variants[0].content);
-        if (visualPromptData.length > 0) {
-          const base64 = await generateImageForArticle(visualPromptData[0]);
-          
+        const visualPrompt = await extractVisualPrompt(variants[0].content);
+        if (visualPrompt) {
+          const base64 = await generateImageForArticle(visualPrompt);
           setProcessingStatus('Готовим публичную ссылку...');
           imageUrl = await uploadImage(base64);
         }
       } catch (imgError: any) {
         console.error("Image gen failed:", imgError.message);
+        setGenError(`Картинка не создана: ${imgError.message}`);
       }
       
       const updatedArticle: Article = {
@@ -474,6 +499,10 @@ const App: React.FC = () => {
                     <h4 className="font-bold mb-2">Статус API Ключа</h4>
                     <p className="text-xs text-slate-500">Ваш ключ настроен в Vercel и используется для генерации контента.</p>
                   </div>
+                  <div className="p-5 bg-amber-500/5 rounded-3xl border border-amber-500/10">
+                    <h4 className="font-bold mb-2 text-amber-500 flex items-center gap-2"><Info size={16}/> Требование Supabase</h4>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">Для генерации картинок убедитесь, что в Supabase создан бакет <b>'images'</b> и в его настройках включен параметр <b>'Public'</b>. Без этого ссылки на картинки не будут работать в соцсетях.</p>
+                  </div>
                </div>
             </div>
           )}
@@ -569,8 +598,8 @@ const App: React.FC = () => {
                        >
                          <Eye size={18}/> Предпросмотр API
                        </button>
-                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать">
-                         <Sparkles size={20}/>
+                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать всё">
+                         <RefreshCw size={20}/>
                        </button>
                     </div>
                   </div>
@@ -585,14 +614,45 @@ const App: React.FC = () => {
                         ))}
                      </div>
                      <div className="lg:col-span-7 space-y-8">
-                        {selectedArticle.generatedImageUrl && (
-                          <div className="relative group">
-                            <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
-                            <div className="absolute top-4 right-4 bg-indigo-600/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
-                               <CloudUpload size={12}/> Облачная ссылка готова
-                            </div>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center px-2">
+                             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Визуальное оформление</label>
+                             {!selectedArticle.generatedImageUrl && (
+                               <button onClick={handleRegenerateImage} className="text-[10px] font-bold text-indigo-400 flex items-center gap-1.5 hover:underline">
+                                 <ImageIconLucide size={12}/> Создать картинку
+                               </button>
+                             )}
                           </div>
-                        )}
+                          {selectedArticle.generatedImageUrl ? (
+                            <div className="relative group">
+                              <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
+                              <div className="absolute top-4 right-4 flex gap-2">
+                                <button onClick={handleRegenerateImage} className="bg-indigo-600/80 backdrop-blur-md p-3 rounded-2xl text-white hover:bg-indigo-600 transition-all" title="Перегенерировать картинку">
+                                  <RefreshCw size={16}/>
+                                </button>
+                                <div className="bg-emerald-500/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
+                                   <CloudUpload size={12}/> Облако ОК
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-full aspect-video bg-slate-900/50 rounded-[40px] border-2 border-dashed border-slate-800 flex flex-col items-center justify-center p-10 text-center">
+                               {genError ? (
+                                 <>
+                                   <AlertTriangle size={32} className="text-amber-500 mb-4"/>
+                                   <p className="text-xs text-amber-500 font-bold mb-2">Ошибка генерации</p>
+                                   <p className="text-[10px] text-slate-500 max-w-xs mb-6">{genError}</p>
+                                   <button onClick={handleRegenerateImage} className="px-6 py-2 bg-slate-800 text-white rounded-xl text-[10px] font-bold hover:bg-slate-700">Повторить попытку</button>
+                                 </>
+                               ) : (
+                                 <>
+                                   <ImageIconLucide size={32} className="text-slate-700 mb-4"/>
+                                   <p className="text-xs text-slate-500 font-medium">Картинка еще не создана или возникла ошибка</p>
+                                 </>
+                               )}
+                            </div>
+                          )}
+                        </div>
                         <div className="space-y-3">
                            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Текст для публикации</label>
                            <textarea 
@@ -605,7 +665,7 @@ const App: React.FC = () => {
                   </div>
                </div>
                <div className="w-[400px] p-12 bg-slate-950/60 backdrop-blur-md flex flex-col">
-                  <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
+                  <button onClick={() => { setSelectedArticle(null); setDeployResults(null); setGenError(null); }} className="self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
                   <div className="flex-1 space-y-4 overflow-y-auto pr-2">
                      <h5 className="text-[10px] font-black uppercase text-slate-500 mb-4 px-2">Выбранные каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (

@@ -9,7 +9,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.API_KEY;
 
   if (!apiKey) {
-    return res.status(500).json({ error: "API_KEY не найден в переменных окружения Vercel. Пожалуйста, добавьте его в настройках проекта." });
+    return res.status(500).json({ error: "API_KEY не найден в переменных окружения Vercel." });
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -20,8 +20,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         model: 'gemini-3-flash-preview',
         contents: `Сгенерируй 3 разных варианта поста для соцсетей на основе этой статьи. ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
         Вариант 1: Профессиональный, экспертный и информативный тон. 
-        Вариант 2: Виральный, вовлекающий, креативный с эмодзи и призывами к действию. 
-        Вариант 3: Ультра-короткий, формат "главное за 30 секунд".
+        Вариант 2: Виральный, вовлекающий, креативный с эмодзи. 
+        Вариант 3: Короткий дайджест.
         Статья: ${payload.text}`,
         config: { 
           temperature: 0.8,
@@ -51,16 +51,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'vision') {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Ты экспертный концепт-художник. Твоя задача — создать ОДИН максимально точный промпт (на английском) для генерации ИЛЛЮСТРАЦИИ к посту. Без текста.
-        Текст поста: ${payload.text}`,
+        contents: `Проанализируй текст и создай ОДИН детальный английский промпт для генерации картинки. 
+        Стиль: современная цифровая иллюстрация, коммерческий арт. 
+        БЕЗ ТЕКСТА НА КАРТИНКЕ.
+        Текст: ${payload.text}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              keywords: { type: Type.ARRAY, items: { type: Type.STRING } }
+              prompt: { type: Type.STRING, description: "Detailed English image generation prompt" }
             },
-            required: ["keywords"]
+            required: ["prompt"]
           }
         }
       });
@@ -69,9 +71,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (task === 'image') {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image', // Используем стабильную модель для генерации
+        model: 'gemini-2.5-flash-image',
         contents: { 
-          parts: [{ text: `Digital art illustration for social media: ${payload.prompt}. Professional lighting, 4k, no text.` }] 
+          parts: [{ text: `High-quality commercial illustration, clean lines, professional lighting, 4k resolution, cinematic composition. Subject: ${payload.prompt}` }] 
         },
         config: { 
           imageConfig: { aspectRatio: "16:9" } 
@@ -82,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (part?.inlineData) {
         return res.status(200).json({ base64: part.inlineData.data });
       }
-      throw new Error("Изображение не было сгенерировано");
+      throw new Error("Модель не вернула данные изображения. Возможно, сработали фильтры безопасности.");
     }
 
     return res.status(400).json({ error: "Unknown task" });

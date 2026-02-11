@@ -17,16 +17,16 @@ export const rewriteArticle = async (text: string): Promise<RewriteVariant[]> =>
   return data.variants;
 };
 
-export const extractKeyConcepts = async (text: string): Promise<string[]> => {
+export const extractVisualPrompt = async (text: string): Promise<string> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ task: 'vision', payload: { text } })
   });
   
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error("Не удалось создать концепт изображения");
   const data = await response.json();
-  return data.keywords || [];
+  return data.prompt || "";
 };
 
 export const generateImageForArticle = async (prompt: string): Promise<string> => {
