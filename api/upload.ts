@@ -28,9 +28,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Создаем путь: папка пользователя / таймстамп
     const fileName = `${userId}/${Date.now()}.png`;
 
-    // Загружаем в бакет 'images'
+    // ЗАГРУЖАЕМ В БАКЕТ 'Images' (С БОЛЬШОЙ БУКВЫ, КАК НА СКРИНШОТЕ)
     const { data, error } = await supabase.storage
-      .from('images')
+      .from('Images')
       .upload(fileName, buffer, {
         contentType: contentType,
         upsert: true
@@ -38,12 +38,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (error) {
       console.error('Supabase Storage Error:', error);
-      throw new Error(`Storage error: ${error.message}. Убедитесь, что бакет 'images' создан и публичен.`);
+      throw new Error(`Storage error: ${error.message}. Проверьте, что бакет 'Images' (с большой буквы) существует.`);
     }
 
     // Получаем публичную ссылку
     const { data: { publicUrl } } = supabase.storage
-      .from('images')
+      .from('Images')
       .getPublicUrl(fileName);
 
     return res.status(200).json({ url: publicUrl });

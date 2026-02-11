@@ -249,18 +249,29 @@ const App: React.FC = () => {
     if (!selectedArticle) return;
     setIsProcessing(true);
     setGenError(null);
-    setProcessingStatus('Обновляем визуальный образ...');
+    setProcessingStatus('Gemini рисует... (может занять до 15 сек)');
     try {
       const visualPrompt = await extractVisualPrompt(editableText);
       const base64 = await generateImageForArticle(visualPrompt);
-      setProcessingStatus('Загружаем в облако...');
-      const imageUrl = await uploadImage(base64);
       
-      const updatedArticle = { ...selectedArticle, generatedImageUrl: imageUrl };
-      setSelectedArticle(updatedArticle);
-      setArticles(prev => prev.map(a => a.id === selectedArticle.id ? updatedArticle : a));
+      // МГНОВЕННО показываем картинку из base64
+      const updatedWithBase64 = { ...selectedArticle, generatedImageUrl: base64 };
+      setSelectedArticle(updatedWithBase64);
+      
+      setProcessingStatus('Сохраняем в облако для публикации...');
+      try {
+        const publicUrl = await uploadImage(base64);
+        const finalArticle = { ...updatedWithBase64, generatedImageUrl: publicUrl };
+        setSelectedArticle(finalArticle);
+        setArticles(prev => prev.map(a => a.id === selectedArticle.id ? finalArticle : a));
+      } catch (uploadErr: any) {
+        console.warn("Cloud upload failed, staying with base64", uploadErr.message);
+        // Оставляем base64, если облако упало, превью всё равно будет работать
+      }
     } catch (e: any) {
-      setGenError(e.message);
+      let msg = e.message;
+      if (msg.includes("504") || msg.includes("timeout")) msg = "Превышено время ожидания (10с). Попробуйте еще раз.";
+      setGenError(msg);
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -273,33 +284,41 @@ const App: React.FC = () => {
     setProcessingStatus('Gemini анализирует контент...');
     try {
       const variants = await rewriteArticle(article.originalText);
-      let imageUrl = '';
+      setEditableText(variants[0].content);
       
-      try {
-        setProcessingStatus('Создаем визуальный образ...');
-        const visualPrompt = await extractVisualPrompt(variants[0].content);
-        if (visualPrompt) {
-          const base64 = await generateImageForArticle(visualPrompt);
-          setProcessingStatus('Готовим публичную ссылку...');
-          imageUrl = await uploadImage(base64);
-        }
-      } catch (imgError: any) {
-        console.error("Image gen failed:", imgError.message);
-        setGenError(`Картинка не создана: ${imgError.message}`);
-      }
-      
-      const updatedArticle: Article = {
+      const initialApproved: Article = {
         ...article,
         status: 'approved',
         rewrittenVariants: variants,
         selectedVariantIndex: 0,
         rewrittenText: variants[0].content,
-        generatedImageUrl: imageUrl || undefined,
       };
-      setArticles(prev => prev.map(a => a.id === article.id ? updatedArticle : a));
-      setEditableText(variants[0].content);
-      setDeployResults(null);
-      setSelectedArticle(updatedArticle);
+      
+      setSelectedArticle(initialApproved);
+      setArticles(prev => prev.map(a => a.id === article.id ? initialApproved : a));
+
+      // Запускаем генерацию картинки отдельно
+      setProcessingStatus('Создаем визуальный образ...');
+      try {
+        const visualPrompt = await extractVisualPrompt(variants[0].content);
+        const base64 = await generateImageForArticle(visualPrompt);
+        
+        // Показываем превью сразу
+        const withImage = { ...initialApproved, generatedImageUrl: base64 };
+        setSelectedArticle(withImage);
+
+        // В фоне грузим в облако
+        try {
+          const publicUrl = await uploadImage(base64);
+          const final = { ...withImage, generatedImageUrl: publicUrl };
+          setSelectedArticle(final);
+          setArticles(prev => prev.map(a => a.id === article.id ? final : a));
+        } catch (upErr) {}
+      } catch (imgError: any) {
+        let msg = imgError.message;
+        if (msg.includes("504")) msg = "Таймаут сервера Gemini (10с). Нажмите 'Обновить картинку' вручную.";
+        setGenError(msg);
+      }
     } catch (error: any) {
       alert("Ошибка ИИ: " + error.message);
     } finally {
@@ -500,8 +519,8 @@ const App: React.FC = () => {
                     <p className="text-xs text-slate-500">Ваш ключ настроен в Vercel и используется для генерации контента.</p>
                   </div>
                   <div className="p-5 bg-amber-500/5 rounded-3xl border border-amber-500/10">
-                    <h4 className="font-bold mb-2 text-amber-500 flex items-center gap-2"><Info size={16}/> Требование Supabase</h4>
-                    <p className="text-[10px] text-slate-400 leading-relaxed">Для генерации картинок убедитесь, что в Supabase создан бакет <b>'images'</b> и в его настройках включен параметр <b>'Public'</b>. Без этого ссылки на картинки не будут работать в соцсетях.</p>
+                    <h4 className="font-bold mb-2 text-amber-500 flex items-center gap-2"><Info size={16}/> Таймаут Vercel (Free)</h4>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">Бесплатный тариф Vercel ограничивает работу скриптов 10 секундами. Генерация картинок иногда требует больше времени. Если картинка не появилась — просто нажмите кнопку "Обновить картинку" в студии еще раз.</p>
                   </div>
                </div>
             </div>
@@ -617,22 +636,26 @@ const App: React.FC = () => {
                         <div className="space-y-3">
                           <div className="flex justify-between items-center px-2">
                              <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Визуальное оформление</label>
-                             {!selectedArticle.generatedImageUrl && (
-                               <button onClick={handleRegenerateImage} className="text-[10px] font-bold text-indigo-400 flex items-center gap-1.5 hover:underline">
-                                 <ImageIconLucide size={12}/> Создать картинку
-                               </button>
-                             )}
+                             <button onClick={handleRegenerateImage} className="text-[10px] font-bold text-indigo-400 flex items-center gap-1.5 hover:underline">
+                               <RefreshCw size={12}/> Обновить картинку
+                             </button>
                           </div>
                           {selectedArticle.generatedImageUrl ? (
                             <div className="relative group">
                               <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
                               <div className="absolute top-4 right-4 flex gap-2">
-                                <button onClick={handleRegenerateImage} className="bg-indigo-600/80 backdrop-blur-md p-3 rounded-2xl text-white hover:bg-indigo-600 transition-all" title="Перегенерировать картинку">
+                                <button onClick={handleRegenerateImage} className="bg-indigo-600/80 backdrop-blur-md p-3 rounded-2xl text-white hover:bg-indigo-600 transition-all" title="Перегенерировать">
                                   <RefreshCw size={16}/>
                                 </button>
-                                <div className="bg-emerald-500/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
-                                   <CloudUpload size={12}/> Облако ОК
-                                </div>
+                                {selectedArticle.generatedImageUrl.startsWith('data:') ? (
+                                   <div className="bg-amber-500/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
+                                      <Loader2 size={12} className="animate-spin"/> Загрузка в облако...
+                                   </div>
+                                ) : (
+                                   <div className="bg-emerald-500/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
+                                      <CloudUpload size={12}/> Облако OK
+                                   </div>
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -640,14 +663,14 @@ const App: React.FC = () => {
                                {genError ? (
                                  <>
                                    <AlertTriangle size={32} className="text-amber-500 mb-4"/>
-                                   <p className="text-xs text-amber-500 font-bold mb-2">Ошибка генерации</p>
+                                   <p className="text-xs text-amber-500 font-bold mb-2">Ошибка ИИ</p>
                                    <p className="text-[10px] text-slate-500 max-w-xs mb-6">{genError}</p>
                                    <button onClick={handleRegenerateImage} className="px-6 py-2 bg-slate-800 text-white rounded-xl text-[10px] font-bold hover:bg-slate-700">Повторить попытку</button>
                                  </>
                                ) : (
                                  <>
-                                   <ImageIconLucide size={32} className="text-slate-700 mb-4"/>
-                                   <p className="text-xs text-slate-500 font-medium">Картинка еще не создана или возникла ошибка</p>
+                                   <ImageIconLucide size={32} className="text-slate-700 mb-4 animate-pulse"/>
+                                   <p className="text-xs text-slate-500 font-medium">Ожидание генерации...</p>
                                  </>
                                )}
                             </div>
