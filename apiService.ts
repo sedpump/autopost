@@ -102,6 +102,16 @@ export const deleteAccount = async (id: string) => {
   return handleResponse(response);
 };
 
+export const uploadImage = async (imageBase64: string): Promise<string> => {
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ imageBase64 })
+  });
+  const data = await handleResponse(response);
+  return data.url;
+};
+
 export const postToPlatforms = async (article: Article, preview: boolean = false) => {
   const response = await fetch(`/api/publish${preview ? '?preview=true' : ''}`, {
     method: 'POST',

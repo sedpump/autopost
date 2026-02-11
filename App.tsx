@@ -43,7 +43,9 @@ import {
   Terminal,
   Eye,
   AlertTriangle,
-  Facebook
+  Facebook,
+  CloudUpload,
+  Image as ImageIconLucide
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractKeyConcepts } from './geminiService';
@@ -57,7 +59,8 @@ import {
   fetchAccounts,
   addAccount,
   updateAccount,
-  deleteAccount
+  deleteAccount,
+  uploadImage
 } from './apiService';
 
 const App: React.FC = () => {
@@ -73,6 +76,7 @@ const App: React.FC = () => {
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [editableText, setEditableText] = useState('');
@@ -260,13 +264,24 @@ const App: React.FC = () => {
   const handleApprove = async (article: Article) => {
     if (!hasImageKey) await handleOpenAiStudio();
     setIsProcessing(true);
+    setProcessingStatus('Gemini анализирует контент...');
     try {
       const variants = await rewriteArticle(article.originalText);
       let imageUrl = '';
+      
       try {
+        setProcessingStatus('Создаем визуальный образ...');
         const visualPromptData = await extractKeyConcepts(variants[0].content);
-        if (visualPromptData.length > 0) imageUrl = await generateImageForArticle(visualPromptData[0]);
-      } catch (imgError) {}
+        if (visualPromptData.length > 0) {
+          const base64 = await generateImageForArticle(visualPromptData[0]);
+          
+          setProcessingStatus('Готовим публичную ссылку...');
+          // Загружаем картинку в Supabase Storage
+          imageUrl = await uploadImage(base64);
+        }
+      } catch (imgError: any) {
+        console.error("Image gen/upload failed:", imgError.message);
+      }
       
       const updatedArticle: Article = {
         ...article,
@@ -284,6 +299,7 @@ const App: React.FC = () => {
       alert("Ошибка ИИ: " + error.message);
     } finally {
       setIsProcessing(false);
+      setProcessingStatus('');
     }
   };
 
@@ -549,8 +565,13 @@ const App: React.FC = () => {
 
       {(isProcessing || isDeploying) && (
         <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center">
-           <div className="w-20 h-20 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
-           <p className="text-white text-xl font-black tracking-wide">{isDeploying ? 'Публикация...' : 'Анализируем контент...'}</p>
+           <div className="relative mb-6">
+              <div className="w-24 h-24 border-4 border-indigo-500/10 border-t-indigo-500 rounded-full animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                 {processingStatus.includes('облако') ? <CloudUpload className="text-indigo-400 animate-pulse" size={32}/> : <Sparkles className="text-indigo-400 animate-pulse" size={32}/>}
+              </div>
+           </div>
+           <p className="text-white text-xl font-black tracking-wide text-center max-w-md px-6">{isDeploying ? 'Идет публикация в каналы...' : (processingStatus || 'Магия OmniPost...')}</p>
         </div>
       )}
 
@@ -566,20 +587,20 @@ const App: React.FC = () => {
                           className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-2xl transition-all flex items-center gap-2 font-bold"
                           title="Посмотреть технический запрос"
                        >
-                         <Eye size={18}/> Технический предпросмотр
+                         <Eye size={18}/> Предпросмотр API
                        </button>
-                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all">
+                       <button onClick={() => handleApprove(selectedArticle)} className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl hover:bg-indigo-500/20 transition-all" title="Перегенерировать">
                          <Sparkles size={20}/>
                        </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                      <div className="lg:col-span-5 space-y-5">
-                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Варианты от ИИ</label>
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Варианты от Gemini</label>
                         {selectedArticle.rewrittenVariants?.map((variant, idx) => (
                            <button key={idx} onClick={() => handleSelectVariant(idx)} className={`w-full p-6 rounded-3xl border text-left transition-all ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'}`}>
                               <h4 className="font-black text-[11px] uppercase text-indigo-400 mb-2">{variant.title}</h4>
-                              <p className="text-sm text-slate-300 line-clamp-3">{variant.content}</p>
+                              <p className="text-sm text-slate-300 line-clamp-3 leading-relaxed">{variant.content}</p>
                            </button>
                         ))}
                      </div>
@@ -587,14 +608,17 @@ const App: React.FC = () => {
                         {selectedArticle.generatedImageUrl && (
                           <div className="relative group">
                             <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
+                            <div className="absolute top-4 right-4 bg-indigo-600/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1.5">
+                               <CloudUpload size={12}/> Облачная ссылка готова
+                            </div>
                           </div>
                         )}
                         <div className="space-y-3">
-                           <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Финальный текст</label>
+                           <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Текст для публикации</label>
                            <textarea 
                               value={editableText}
                               onChange={(e) => setEditableText(e.target.value)}
-                              className="w-full min-h-[250px] p-10 bg-slate-900/50 rounded-[40px] border border-slate-800 text-base text-slate-100 font-medium outline-none focus:border-indigo-500/50 transition-all resize-none"
+                              className="w-full min-h-[250px] p-10 bg-slate-900/50 rounded-[40px] border border-slate-800 text-base text-slate-100 font-medium outline-none focus:border-indigo-500/50 transition-all resize-none leading-relaxed"
                            />
                         </div>
                      </div>
@@ -610,7 +634,7 @@ const App: React.FC = () => {
                              <p className="text-sm font-black text-white">{res.name}</p>
                              {res.status === 'success' ? <CheckCircle size={16} className="text-emerald-500"/> : <ShieldAlert size={16} className="text-red-500"/>}
                            </div>
-                           {res.error && <p className="text-[10px] text-red-300 mt-2">{res.error}</p>}
+                           {res.error && <p className="text-[10px] text-red-300 mt-2 leading-tight">{res.error}</p>}
                         </div>
                      )) : accounts.map(acc => (
                         <div key={acc.id} className="p-5 rounded-3xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between group">
@@ -620,9 +644,9 @@ const App: React.FC = () => {
                      ))}
                   </div>
                   {!deployResults ? (
-                    <button onClick={() => handleDeploy(false)} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs transition-all">Опубликовать</button>
+                    <button onClick={() => handleDeploy(false)} className="w-full mt-8 py-6 bg-indigo-600 hover:bg-indigo-500 rounded-[32px] font-black text-white uppercase tracking-widest text-xs transition-all shadow-xl shadow-indigo-600/20">Опубликовать сейчас</button>
                   ) : (
-                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Завершить</button>
+                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-8 py-6 bg-slate-800 hover:bg-slate-700 text-white rounded-[32px] font-black uppercase text-xs transition-all">Закрыть студию</button>
                   )}
                </div>
             </div>
@@ -636,29 +660,29 @@ const App: React.FC = () => {
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl"><Terminal size={24}/></div>
                 <div>
-                   <h3 className="text-2xl font-black text-white">Технический аудит</h3>
-                   <p className="text-slate-500 text-xs">Данные запроса к API платформы</p>
+                   <h3 className="text-2xl font-black text-white">API Контроль</h3>
+                   <p className="text-slate-500 text-xs">Технический аудит исходящего запроса</p>
                 </div>
               </div>
-              <button onClick={() => setShowDebugModal(null)} className="p-2 text-slate-500 hover:text-white"><XCircle size={32}/></button>
+              <button onClick={() => setShowDebugModal(null)} className="p-2 text-slate-500 hover:text-white transition-colors"><XCircle size={32}/></button>
             </div>
             
             <div className="flex-1 overflow-y-auto space-y-6 pr-4">
                <div className="space-y-3">
                  <div className="flex justify-between items-center px-2">
-                    <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">HTTP Запрос (Payload)</label>
-                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.request)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1"><Copy size={12}/> Копировать</button>
+                    <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">HTTP Request Payload</label>
+                    <button onClick={() => navigator.clipboard.writeText(showDebugModal.request)} className="text-[10px] font-bold text-slate-500 hover:text-white flex items-center gap-1 transition-colors"><Copy size={12}/> Копировать</button>
                  </div>
-                 <pre className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-[11px] text-indigo-300 font-mono whitespace-pre-wrap leading-relaxed">
+                 <pre className="bg-slate-900 border border-slate-800 p-6 rounded-3xl text-[11px] text-indigo-300 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">
                    {showDebugModal.request}
                  </pre>
                </div>
 
                <div className="space-y-3">
                  <div className="flex justify-between items-center px-2">
-                    <label className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Ответ API</label>
+                    <label className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">API Response (Simulation)</label>
                  </div>
-                 <pre className="bg-slate-950 border border-emerald-500/20 p-6 rounded-3xl text-[11px] text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed">
+                 <pre className="bg-slate-950 border border-emerald-500/20 p-6 rounded-3xl text-[11px] text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">
                    {showDebugModal.response}
                  </pre>
                </div>
