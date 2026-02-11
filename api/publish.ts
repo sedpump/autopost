@@ -174,19 +174,15 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
   const token = accessToken.trim();
   const userId = igUserId.trim();
 
-  // Instagram требует ПРЯМУЮ публичную ссылку на картинку. 
-  // Если у нас base64, API Meta её не примет напрямую.
-  // В данном решении мы предполагаем, что если картинка начинается на http - используем её.
-  // Иначе (base64) - выбрасываем ошибку с инструкцией.
   if (image && image.startsWith('data:image')) {
-    throw new Error("Instagram требует публичную URL-ссылку на изображение. Base64 не поддерживается Meta API. Попробуйте использовать прямую ссылку или настройте облачное хранилище.");
+    throw new Error("Instagram требует публичную URL-ссылку на изображение. Подождите, пока картинка загрузится в облако.");
   }
 
   const igPost = async (endpoint: string, params: any) => {
     const url = `https://graph.facebook.com/v19.0/${endpoint}`;
     const fullParams = { ...params, access_token: token };
     
-    if (previewOnly) {
+    if (previewOnly && endpoint.includes('media_publish')) {
        const err = new Error("PREVIEW_MODE") as any;
        err.debugData = { request: `POST ${url}\n${JSON.stringify(fullParams)}`, response: "--- ПРЕДПРОСМОТРА ---" };
        throw err;
@@ -198,7 +194,10 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
     } catch (err: any) {
       const msg = err.response?.data?.error?.message || err.message;
       const error = new Error(`Instagram Error: ${msg}`) as any;
-      error.debugData = { request: `POST ${url}`, response: JSON.stringify(err.response?.data || {}, null, 2) };
+      error.debugData = { 
+        request: `POST ${url}`, 
+        response: JSON.stringify(err.response?.data || {}, null, 2) 
+      };
       throw error;
     }
   };
@@ -209,6 +208,16 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
       image_url: image,
       caption: text
     });
+
+    if (!container || !container.id) {
+      throw new Error("Instagram не вернул ID контейнера при создании медиа.");
+    }
+
+    // КРИТИЧЕСКИ ВАЖНО: Ждем 5-7 секунд, чтобы Facebook успел скачать и обработать картинку
+    // по внешней ссылке из Supabase, прежде чем мы попросим её опубликовать.
+    if (!previewOnly) {
+      await new Promise(resolve => setTimeout(resolve, 7000));
+    }
 
     // 2. Публикуем контейнер
     await igPost(`${userId}/media_publish`, {
@@ -242,7 +251,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
         results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью не поддерживается' : undefined });
       } else if (p === 'INSTAGRAM' || p === 'ИНСТАГРАМ') {
-        await publishToInstagram(acc.credentials.accessToken, acc.credentials.igUserId, text, image, isPreview);
+        const igUserId = acc.credentials.igUserId || acc.credentials.instagramId; // Поддержка обоих вариантов ключа
+        await publishToInstagram(acc.credentials.accessToken, igUserId, text, image, isPreview);
         results.push({ name: acc.name, status: 'success' });
       }
     } catch (e: any) {
