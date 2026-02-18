@@ -12,25 +12,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: "API_KEY не настроен." });
   }
 
-  // Очистка текста от символов, которые могут вызвать сбой парсинга на стороне Google
   const cleanText = (text: string) => text ? text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").trim() : "";
-
   const ai = new GoogleGenAI({ apiKey });
 
   try {
     if (task === 'rewrite') {
       const input = cleanText(payload.text);
+      const length = payload.length || 'post';
       if (!input) throw new Error("Пустой текст для обработки");
+
+      let promptInstruction = "";
+      if (length === 'post') {
+        promptInstruction = "Сгенерируй 3 коротких, емких варианта поста для соцсетей (до 500 символов). Используй эмодзи и призыв к действию.";
+      } else if (length === 'article') {
+        promptInstruction = "Сгенерируй 3 полноценных структурированных статьи (1000-2000 символов). Используй введение, основную часть и выводы. Стиль должен быть экспертным.";
+      } else if (length === 'longread') {
+        promptInstruction = "Сгенерируй 3 глубоких лонгрида (3000+ символов). Обязательно используй подзаголовки, маркированные списки, глубокую аналитику и детализацию. Это контент для Яндекс.Дзена или VC.ru.";
+      }
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Сгенерируй 3 разных варианта поста для соцсетей на основе этой статьи. ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
-        Вариант 1: Профессиональный стиль.
-        Вариант 2: Креативный стиль с эмодзи.
-        Вариант 3: Краткий дайджест.
-        Статья: ${input}`,
+        contents: `${promptInstruction} ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
+        Вариант 1: Информационный / Экспертный.
+        Вариант 2: История / Сторителлинг.
+        Вариант 3: Аналитический / Провокационный.
+        Ориентир (тема/тезисы): ${input}`,
         config: { 
-          temperature: 0.7,
+          temperature: 0.8,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -58,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const input = cleanText(payload.text);
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Create a professional English image generation prompt for this text: ${input}. Focus on conceptual digital art style, no text.`,
+        contents: `Create a professional English image generation prompt for this content: ${input.substring(0, 1000)}. Style: Commercial high-end photography or minimalist 3D render. No text, focus on concepts.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -75,13 +83,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (task === 'image') {
       const prompt = cleanText(payload.prompt);
+      const ar = payload.aspectRatio || "16:9";
+      
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { 
-          parts: [{ text: `Professional commercial illustration, high quality, cinematic. Subject: ${prompt}` }] 
+          parts: [{ text: `Professional digital art, sharp focus, 8k resolution. Theme: ${prompt}` }] 
         },
         config: { 
-          imageConfig: { aspectRatio: "16:9" } 
+          imageConfig: { 
+            aspectRatio: ar as any 
+          } 
         }
       });
 
@@ -89,19 +101,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (part?.inlineData) {
         return res.status(200).json({ base64: part.inlineData.data });
       }
-      throw new Error("Google Image Model did not return data. Try a different prompt.");
+      throw new Error("ИИ не смог создать изображение. Попробуйте другой запрос.");
     }
 
     return res.status(400).json({ error: "Unknown task" });
   } catch (error: any) {
-    // Если ошибка - это объект с кодом, вытаскиваем только сообщение
-    let message = error.message;
-    try {
-      const parsed = JSON.parse(error.message);
-      if (parsed.error?.message) message = parsed.error.message;
-    } catch(e) {}
-    
-    console.error("Gemini Critical Error:", message);
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: error.message });
   }
 }

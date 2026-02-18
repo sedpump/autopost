@@ -1,11 +1,11 @@
 
 import { RewriteVariant } from './types';
 
-export const rewriteArticle = async (text: string): Promise<RewriteVariant[]> => {
+export const rewriteArticle = async (text: string, length: 'post' | 'article' | 'longread' = 'post'): Promise<RewriteVariant[]> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task: 'rewrite', payload: { text } })
+    body: JSON.stringify({ task: 'rewrite', payload: { text, length } })
   });
   
   if (!response.ok) {
@@ -29,11 +29,11 @@ export const extractVisualPrompt = async (text: string): Promise<string> => {
   return data.prompt || "";
 };
 
-export const generateImageForArticle = async (prompt: string): Promise<string> => {
+export const generateImageForArticle = async (prompt: string, aspectRatio: '1:1' | '16:9' | '9:16' = '16:9'): Promise<string> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task: 'image', payload: { prompt } })
+    body: JSON.stringify({ task: 'image', payload: { prompt, aspectRatio } })
   });
   
   if (!response.ok) {

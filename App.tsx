@@ -51,7 +51,13 @@ import {
   PenTool,
   PlusCircle,
   Wand2,
-  Type as TypeIcon
+  Type as TypeIcon,
+  Maximize2,
+  AlignLeft,
+  FileText,
+  RectangleHorizontal,
+  RectangleVertical,
+  Square
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractVisualPrompt } from './geminiService';
@@ -97,13 +103,13 @@ const App: React.FC = () => {
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [genError, setGenError] = useState<string | null>(null);
-
-  // Для свободного постинга
+  // Настройки креатора
   const [manualText, setManualText] = useState('');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [creatorVariants, setCreatorVariants] = useState<RewriteVariant[]>([]);
+  const [postLength, setPostLength] = useState<'post' | 'article' | 'longread'>('post');
+  const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16'>('16:9');
 
   useEffect(() => {
     if (user) {
@@ -227,7 +233,8 @@ const App: React.FC = () => {
     setProcessingStatus('Gemini создает визуальный концепт...');
     try {
       const prompt = await extractVisualPrompt(manualText);
-      const base64 = await generateImageForArticle(prompt);
+      // Передаем выбранный Aspect Ratio в сервис
+      const base64 = await generateImageForArticle(prompt, aspectRatio);
       setManualImageUrl(base64);
       
       setProcessingStatus('Загружаем в облако...');
@@ -247,9 +254,9 @@ const App: React.FC = () => {
       return;
     }
     setIsProcessing(true);
-    setProcessingStatus('Gemini пишет статью...');
+    setProcessingStatus(`Gemini пишет ${postLength === 'post' ? 'пост' : 'статью'}...`);
     try {
-      const variants = await rewriteArticle(manualText);
+      const variants = await rewriteArticle(manualText, postLength);
       setCreatorVariants(variants);
     } catch (e: any) {
       alert("Ошибка ИИ: " + e.message);
@@ -293,10 +300,9 @@ const App: React.FC = () => {
 
   const handleApprove = async (article: Article) => {
     setIsProcessing(true);
-    setGenError(null);
     setProcessingStatus('Gemini анализирует контент...');
     try {
-      const variants = await rewriteArticle(article.originalText);
+      const variants = await rewriteArticle(article.originalText, 'post');
       setEditableText(variants[0].content);
       
       const initialApproved: Article = {
@@ -313,15 +319,13 @@ const App: React.FC = () => {
       setProcessingStatus('Создаем визуальный образ...');
       try {
         const visualPrompt = await extractVisualPrompt(variants[0].content);
-        const base64 = await generateImageForArticle(visualPrompt);
+        const base64 = await generateImageForArticle(visualPrompt, '16:9');
         const publicUrl = await uploadImage(base64);
         
         const final = { ...initialApproved, generatedImageUrl: publicUrl };
         setSelectedArticle(final);
         setArticles(prev => prev.map(a => a.id === article.id ? final : a));
-      } catch (imgError: any) {
-        setGenError(imgError.message || "Не удалось создать картинку");
-      }
+      } catch (imgError: any) {}
     } catch (error: any) {
       alert("Ошибка ИИ: " + error.message);
     } finally {
@@ -347,6 +351,18 @@ const App: React.FC = () => {
     }
   };
 
+  const renderAccountIcon = (platform: Platform) => {
+    switch(platform) {
+      case Platform.TELEGRAM: return <Send size={20} />;
+      case Platform.VK: return <Globe size={20} />;
+      case Platform.INSTAGRAM: return <Instagram size={20} />;
+      case Platform.DZEN: return <Layout size={20} />;
+      case Platform.TENCHAT: return <Smartphone size={20} />;
+      case Platform.PIKABU: return <Flame size={20} />;
+      default: return <Zap size={20} />;
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
@@ -367,18 +383,6 @@ const App: React.FC = () => {
       </div>
     );
   }
-
-  const renderAccountIcon = (platform: Platform) => {
-    switch(platform) {
-      case Platform.TELEGRAM: return <Send size={20} />;
-      case Platform.VK: return <Globe size={20} />;
-      case Platform.INSTAGRAM: return <Instagram size={20} />;
-      case Platform.DZEN: return <Layout size={20} />;
-      case Platform.TENCHAT: return <Smartphone size={20} />;
-      case Platform.PIKABU: return <Flame size={20} />;
-      default: return <Zap size={20} />;
-    }
-  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-200 font-inter">
@@ -425,29 +429,28 @@ const App: React.FC = () => {
           {activeTab === 'creator' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 animate-in fade-in duration-500">
                <div className="lg:col-span-8 space-y-8">
-                  <div className="glass p-10 rounded-[48px] border border-slate-800">
-                    <div className="flex justify-between items-center mb-8">
+                  <div className="glass p-10 rounded-[48px] border border-slate-800 relative">
+                    <div className="flex justify-between items-center mb-10">
                       <h3 className="text-2xl font-black text-white flex items-center gap-3"><PenTool className="text-indigo-500"/> Напишите пост</h3>
-                      <button 
-                        onClick={handleManualAiRewrite} 
-                        className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
-                      >
-                        <Wand2 size={18}/> Написать через AI
-                      </button>
+                      <div className="flex bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800 gap-1">
+                         <button onClick={() => setPostLength('post')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${postLength === 'post' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Пост</button>
+                         <button onClick={() => setPostLength('article')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${postLength === 'article' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Статья</button>
+                         <button onClick={() => setPostLength('longread')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${postLength === 'longread' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Лонгрид</button>
+                      </div>
                     </div>
 
                     {creatorVariants.length > 0 && (
-                      <div className="mb-8 space-y-3 animate-in slide-in-from-top-4">
+                      <div className="mb-10 space-y-3 animate-in slide-in-from-top-4">
                         <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest px-2">Выберите вариант текста:</label>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           {creatorVariants.map((v, i) => (
                             <button 
                               key={i} 
                               onClick={() => { setManualText(v.content); setCreatorVariants([]); }}
-                              className="p-4 bg-slate-900 border border-slate-800 hover:border-indigo-500 rounded-2xl text-left transition-all"
+                              className="p-5 bg-slate-900 border border-slate-800 hover:border-indigo-500 rounded-3xl text-left transition-all"
                             >
                               <h4 className="text-[9px] font-black uppercase text-slate-500 mb-2">{v.title}</h4>
-                              <p className="text-[11px] text-slate-300 line-clamp-3">{v.content}</p>
+                              <p className="text-[11px] text-slate-300 line-clamp-4 leading-relaxed">{v.content}</p>
                             </button>
                           ))}
                           <button onClick={() => setCreatorVariants([])} className="p-4 bg-slate-800/50 rounded-2xl text-[10px] font-bold text-slate-500 hover:text-white">Отмена</button>
@@ -456,29 +459,53 @@ const App: React.FC = () => {
                     )}
 
                     <textarea 
-                      placeholder="О чем расскажем сегодня? Напишите тему или тезисы, и нажмите 'Написать через AI'..." 
+                      placeholder="О чем расскажем сегодня? Напишите тезисы или тему..." 
                       value={manualText}
                       onChange={e => setManualText(e.target.value)}
-                      className="w-full min-h-[300px] bg-slate-900/50 border border-slate-800 rounded-[32px] p-8 text-lg text-white outline-none focus:border-indigo-500 transition-all resize-none mb-6"
+                      className="w-full min-h-[400px] bg-slate-900/50 border border-slate-800 rounded-[32px] p-8 text-lg text-white outline-none focus:border-indigo-500 transition-all resize-none mb-8"
                     />
-                    <div className="flex justify-between items-center">
-                       <button onClick={handleManualGenerateImage} className="px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold text-white flex items-center gap-2 transition-all">
-                         <ImageIconLucide size={20}/> {manualImageUrl ? 'Перерисовать арт' : 'Сгенерировать арт'}
-                       </button>
-                       <div className="text-slate-500 text-xs font-medium italic">Gemini автоматически создаст иллюстрацию по тексту</div>
+
+                    <div className="flex flex-wrap justify-between items-center gap-6">
+                       <div className="flex items-center gap-3">
+                          <button 
+                            onClick={handleManualAiRewrite} 
+                            className="bg-indigo-600 hover:bg-indigo-500 px-8 py-4 rounded-[24px] font-black text-white flex items-center gap-2 transition-all shadow-xl shadow-indigo-600/20"
+                          >
+                            <Wand2 size={20}/> {postLength === 'post' ? 'Написать пост' : 'Написать статью'}
+                          </button>
+                       </div>
+                       
+                       <div className="flex bg-slate-900/50 p-2 rounded-[24px] border border-slate-800 gap-2 items-center">
+                          <span className="text-[9px] font-black uppercase text-slate-600 px-3 tracking-widest">Формат Изображения</span>
+                          <div className="flex gap-1">
+                            <button onClick={() => setAspectRatio('1:1')} className={`p-3 rounded-xl transition-all ${aspectRatio === '1:1' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:text-slate-400'}`} title="1:1 (Square)"><Square size={18}/></button>
+                            <button onClick={() => setAspectRatio('16:9')} className={`p-3 rounded-xl transition-all ${aspectRatio === '16:9' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:text-slate-400'}`} title="16:9 (Landscape)"><RectangleHorizontal size={18}/></button>
+                            <button onClick={() => setAspectRatio('9:16')} className={`p-3 rounded-xl transition-all ${aspectRatio === '9:16' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:text-slate-400'}`} title="9:16 (Portrait)"><RectangleVertical size={18}/></button>
+                          </div>
+                       </div>
                     </div>
                   </div>
 
                   {manualImageUrl && (
-                    <div className="glass p-10 rounded-[48px] border border-slate-800">
-                       <h4 className="text-sm font-black uppercase text-slate-500 mb-6 tracking-widest">Визуальное сопровождение</h4>
+                    <div className="glass p-10 rounded-[48px] border border-slate-800 animate-in fade-in zoom-in duration-500">
+                       <div className="flex justify-between items-center mb-6">
+                         <h4 className="text-sm font-black uppercase text-slate-500 tracking-widest">AI Визуализация</h4>
+                         <button onClick={handleManualGenerateImage} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 transition-all">ПЕРЕГЕНЕРИРОВАТЬ</button>
+                       </div>
                        <img src={manualImageUrl} className="w-full rounded-[32px] border border-slate-800 shadow-2xl" alt="Preview" />
                     </div>
+                  )}
+                  
+                  {!manualImageUrl && manualText.trim().length > 10 && (
+                    <button onClick={handleManualGenerateImage} className="w-full py-10 glass border-2 border-dashed border-slate-800 rounded-[40px] text-slate-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-all flex flex-col items-center gap-4">
+                       <ImageIconLucide size={40} className="opacity-20" />
+                       <span className="font-bold uppercase tracking-widest text-[11px]">Нажмите, чтобы Gemini нарисовал арт</span>
+                    </button>
                   )}
                </div>
 
                <div className="lg:col-span-4 space-y-8">
-                  <div className="glass p-10 rounded-[40px] border border-slate-800">
+                  <div className="glass p-10 rounded-[40px] border border-slate-800 sticky top-28">
                     <h3 className="text-xl font-black text-white mb-8">Куда пуляем?</h3>
                     <div className="space-y-3">
                        {accounts.map(acc => (
@@ -494,7 +521,6 @@ const App: React.FC = () => {
                            {selectedAccountIds.includes(acc.id) ? <CheckCircle size={18} className="text-indigo-400"/> : <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-800"></div>}
                          </button>
                        ))}
-                       {accounts.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Нет активных аккаунтов</p>}
                     </div>
 
                     <div className="h-px bg-slate-800 my-10"></div>
@@ -503,7 +529,7 @@ const App: React.FC = () => {
                       <button 
                         onClick={handleManualPublish}
                         disabled={isDeploying || !manualText.trim()}
-                        className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-3xl font-black text-white uppercase text-xs tracking-widest shadow-xl shadow-indigo-600/20 transition-all flex items-center justify-center gap-3"
+                        className="w-full py-6 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-3xl font-black text-white uppercase text-xs tracking-widest shadow-2xl shadow-indigo-600/40 transition-all flex items-center justify-center gap-3"
                       >
                         {isDeploying ? <Loader2 className="animate-spin" /> : <><Rocket size={20}/> Опубликовать</>}
                       </button>
