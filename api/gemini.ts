@@ -23,35 +23,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!input) throw new Error("Пустой текст для обработки");
 
       let promptInstruction = "";
+      // Устанавливаем лимиты, чтобы итоговый текст с футером влез в 1024 символа Telegram
       if (length === 'post') {
-        promptInstruction = "Сгенерируй 3 живых, вовлекающих варианта поста для соцсетей. Пиши как человек для людей, используй уместное количество эмодзи. Сделай текст энергичным и понятным.";
-      } else if (length === 'article') {
-        promptInstruction = "Сгенерируй 3 экспертных статьи с естественным повествованием. Пиши живым, профессиональным языком. СТРОГО ЗАПРЕЩЕНО использовать заголовки типа 'Введение', 'Основная часть', 'Заключение' или 'Выводы'.";
-      } else if (length === 'longread') {
-        promptInstruction = "Сгенерируй 3 глубоких лонгрида. Используй интересные подзаголовки, списки и глубокую аналитику. Пиши в стиле качественного блога или статьи на VC.";
+        promptInstruction = "Сгенерируй 3 коротких, емких варианта поста (максимум 600 символов каждый). Пиши живым языком, используй 2-3 эмодзи. Фокусируйся на главной мысли.";
+      } else if (length === 'article' || length === 'longread') {
+        promptInstruction = "Сгенерируй 3 экспертных текста. Соблюдай краткость: основной текст не должен превышать 700 символов. Пиши профессионально, но доступно. Избегай канцеляризмов.";
       }
 
-      const refinementNote = comment ? `\nОБРАТИ ВНИМАНИЕ НА ПОЖЕЛАНИЕ ПОЛЬЗОВАТЕЛЯ: "${comment}". Измени или скорректируй текст в соответствии с этим комментарием.` : "";
+      const refinementNote = comment ? `\nДОПОЛНИТЕЛЬНОЕ ПОЖЕЛАНИЕ: "${comment}". Учти это при генерации.` : "";
 
       const companyContext = `
-      ОБЯЗАТЕЛЬНО: Органично впиши в текст упоминание компании 'Федеральный Ипотечный Сервис'. 
-      Текст должен внушать доверие и показывать, что мы эксперты в ипотеке.
-      В самом конце каждого варианта добавь блок контактов БЕЗ лишних слов:
+      ВАЖНО: Каждый вариант ОБЯЗАТЕЛЬНО должен заканчиваться следующим текстом (включи его в общий объем):
       
-      Федеральный Ипотечный Сервис
-      8 (495) 143 83 33
-      info@fis-ipoteka.ru
+      Доверяя сопровождение ипотеки Федеральному Ипотечному Сервису, вы получаете гарантию того, что ваш путь к новоселью будет защищен современными стандартами безопасности. Федеральный Ипотечный Сервис 8 (495) 143 83 33 info@fis-ipoteka.ru
       `;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `${promptInstruction} ${refinementNote} ${companyContext} ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
-        Вариант 1: Полезный / Образовательный.
-        Вариант 2: Дружелюбный / Совет от профи.
-        Вариант 3: Трендовый / Взгляд на рынок.
-        Темы для проработки: ${input}`,
+        contents: `${promptInstruction} ${refinementNote} ${companyContext} 
+        ОБЩИЙ ЛИМИТ СИМВОЛОВ ВКЛЮЧАЯ КОНТАКТЫ: 1000 знаков. ТЕКСТ СТРОГО НА РУССКОМ.
+        Вариант 1: Полезный факт.
+        Вариант 2: Дружелюбный совет.
+        Вариант 3: Аналитика рынка.
+        Исходные данные: ${input}`,
         config: { 
-          temperature: 0.9,
+          temperature: 0.8,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -83,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Create a high-end commercial photo prompt for image generation based on this real estate/finance topic: ${input.substring(0, 500)}. ${refinementNote} Style: Professional photography, warm lighting, elegant interiors or abstract concepts of stability. No text in image. Output English prompt.`,
+        contents: `Create a professional photo prompt for image generation based on this topic: ${input.substring(0, 400)}. ${refinementNote} Style: Modern, clean, professional photography. No text in image. Output English prompt.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -105,7 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: { 
-          parts: [{ text: `High quality commercial photography style. ${prompt}` }] 
+          parts: [{ text: `High quality commercial style. ${prompt}` }] 
         },
         config: { 
           imageConfig: { 
@@ -118,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (part?.inlineData) {
         return res.status(200).json({ base64: part.inlineData.data });
       }
-      throw new Error("Не удалось сгенерировать изображение. Попробуйте обновить текст.");
+      throw new Error("Не удалось сгенерировать изображение.");
     }
 
     return res.status(400).json({ error: "Unknown task" });
