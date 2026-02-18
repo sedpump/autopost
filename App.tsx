@@ -49,7 +49,9 @@ import {
   Cpu,
   RefreshCw,
   PenTool,
-  PlusCircle
+  PlusCircle,
+  Wand2,
+  Type as TypeIcon
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractVisualPrompt } from './geminiService';
@@ -101,6 +103,7 @@ const App: React.FC = () => {
   const [manualText, setManualText] = useState('');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [creatorVariants, setCreatorVariants] = useState<RewriteVariant[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -121,7 +124,6 @@ const App: React.FC = () => {
       setArticles(newArticles);
       setSources(newSources);
       setAccounts(newAccounts);
-      // По умолчанию в креаторе выбираем все аккаунты
       if (selectedAccountIds.length === 0) {
         setSelectedAccountIds(newAccounts.map(a => a.id));
       }
@@ -231,6 +233,24 @@ const App: React.FC = () => {
       setProcessingStatus('Загружаем в облако...');
       const publicUrl = await uploadImage(base64);
       setManualImageUrl(publicUrl);
+    } catch (e: any) {
+      alert("Ошибка ИИ: " + e.message);
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  const handleManualAiRewrite = async () => {
+    if (!manualText.trim()) {
+      alert("Сначала напишите хотя бы пару слов или тему поста");
+      return;
+    }
+    setIsProcessing(true);
+    setProcessingStatus('Gemini пишет статью...');
+    try {
+      const variants = await rewriteArticle(manualText);
+      setCreatorVariants(variants);
     } catch (e: any) {
       alert("Ошибка ИИ: " + e.message);
     } finally {
@@ -406,9 +426,37 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 animate-in fade-in duration-500">
                <div className="lg:col-span-8 space-y-8">
                   <div className="glass p-10 rounded-[48px] border border-slate-800">
-                    <h3 className="text-2xl font-black text-white mb-8 flex items-center gap-3"><PenTool className="text-indigo-500"/> Напишите пост</h3>
+                    <div className="flex justify-between items-center mb-8">
+                      <h3 className="text-2xl font-black text-white flex items-center gap-3"><PenTool className="text-indigo-500"/> Напишите пост</h3>
+                      <button 
+                        onClick={handleManualAiRewrite} 
+                        className="bg-indigo-600 hover:bg-indigo-500 px-6 py-3 rounded-2xl font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-indigo-600/20"
+                      >
+                        <Wand2 size={18}/> Написать через AI
+                      </button>
+                    </div>
+
+                    {creatorVariants.length > 0 && (
+                      <div className="mb-8 space-y-3 animate-in slide-in-from-top-4">
+                        <label className="text-[10px] font-black uppercase text-indigo-400 tracking-widest px-2">Выберите вариант текста:</label>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {creatorVariants.map((v, i) => (
+                            <button 
+                              key={i} 
+                              onClick={() => { setManualText(v.content); setCreatorVariants([]); }}
+                              className="p-4 bg-slate-900 border border-slate-800 hover:border-indigo-500 rounded-2xl text-left transition-all"
+                            >
+                              <h4 className="text-[9px] font-black uppercase text-slate-500 mb-2">{v.title}</h4>
+                              <p className="text-[11px] text-slate-300 line-clamp-3">{v.content}</p>
+                            </button>
+                          ))}
+                          <button onClick={() => setCreatorVariants([])} className="p-4 bg-slate-800/50 rounded-2xl text-[10px] font-bold text-slate-500 hover:text-white">Отмена</button>
+                        </div>
+                      </div>
+                    )}
+
                     <textarea 
-                      placeholder="О чем расскажем сегодня?..." 
+                      placeholder="О чем расскажем сегодня? Напишите тему или тезисы, и нажмите 'Написать через AI'..." 
                       value={manualText}
                       onChange={e => setManualText(e.target.value)}
                       className="w-full min-h-[300px] bg-slate-900/50 border border-slate-800 rounded-[32px] p-8 text-lg text-white outline-none focus:border-indigo-500 transition-all resize-none mb-6"
@@ -417,7 +465,7 @@ const App: React.FC = () => {
                        <button onClick={handleManualGenerateImage} className="px-8 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold text-white flex items-center gap-2 transition-all">
                          <ImageIconLucide size={20}/> {manualImageUrl ? 'Перерисовать арт' : 'Сгенерировать арт'}
                        </button>
-                       <div className="text-slate-500 text-xs font-medium italic">Gemini 3 Flash автоматически подберет стиль по тексту</div>
+                       <div className="text-slate-500 text-xs font-medium italic">Gemini автоматически создаст иллюстрацию по тексту</div>
                     </div>
                   </div>
 
@@ -468,7 +516,7 @@ const App: React.FC = () => {
                              {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
                            </div>
                         ))}
-                        <button onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); }} className="w-full py-4 mt-4 bg-slate-800 rounded-2xl font-bold text-white text-xs">Новый пост</button>
+                        <button onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); }} className="w-full py-4 mt-4 bg-slate-800 rounded-2xl font-bold text-white text-xs">Новый пост</button>
                       </div>
                     )}
                   </div>
