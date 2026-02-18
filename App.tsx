@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Inbox, 
   Settings as SettingsIcon, 
@@ -57,7 +57,9 @@ import {
   FileText,
   RectangleHorizontal,
   RectangleVertical,
-  Square
+  Square,
+  RefreshCcw,
+  MessageSquareQuote
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
 import { rewriteArticle, generateImageForArticle, extractVisualPrompt } from './geminiService';
@@ -103,7 +105,11 @@ const App: React.FC = () => {
   const [username, setUsername] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // Настройки креатора
+  // Refinement states
+  const [textComment, setTextComment] = useState('');
+  const [imageComment, setImageComment] = useState('');
+
+  // Creator states
   const [manualText, setManualText] = useState('');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
@@ -224,21 +230,27 @@ const App: React.FC = () => {
     }
   };
 
-  const handleManualGenerateImage = async () => {
-    if (!manualText.trim()) {
+  const handleManualGenerateImage = async (comment?: string) => {
+    const textToAnalyze = manualText || editableText;
+    if (!textToAnalyze.trim()) {
       alert("Сначала напишите текст поста, чтобы ИИ понял, что рисовать");
       return;
     }
     setIsProcessing(true);
     setProcessingStatus('Gemini создает визуальный концепт...');
     try {
-      const prompt = await extractVisualPrompt(manualText);
+      const prompt = await extractVisualPrompt(textToAnalyze, comment);
       const base64 = await generateImageForArticle(prompt, aspectRatio);
-      setManualImageUrl(base64);
       
       setProcessingStatus('Загружаем в облако...');
       const publicUrl = await uploadImage(base64);
-      setManualImageUrl(publicUrl);
+      
+      if (activeTab === 'creator') {
+        setManualImageUrl(publicUrl);
+      } else if (selectedArticle) {
+        setSelectedArticle({ ...selectedArticle, generatedImageUrl: publicUrl });
+      }
+      setImageComment('');
     } catch (e: any) {
       alert("Ошибка ИИ: " + e.message);
     } finally {
@@ -247,16 +259,23 @@ const App: React.FC = () => {
     }
   };
 
-  const handleManualAiRewrite = async () => {
-    if (!manualText.trim()) {
+  const handleManualAiRewrite = async (comment?: string) => {
+    const baseText = manualText || (selectedArticle ? selectedArticle.originalText : '');
+    if (!baseText.trim()) {
       alert("Сначала напишите хотя бы пару слов или тему поста");
       return;
     }
     setIsProcessing(true);
-    setProcessingStatus(`Gemini пишет ${postLength === 'post' ? 'пост' : 'статью'}...`);
+    setProcessingStatus(comment ? 'Gemini корректирует текст...' : `Gemini пишет ${postLength === 'post' ? 'пост' : 'статью'}...`);
     try {
-      const variants = await rewriteArticle(manualText, postLength);
-      setCreatorVariants(variants);
+      const variants = await rewriteArticle(baseText, postLength, comment);
+      if (activeTab === 'creator') {
+        setCreatorVariants(variants);
+      } else if (selectedArticle) {
+        setSelectedArticle({ ...selectedArticle, rewrittenVariants: variants, rewrittenText: variants[0].content, selectedVariantIndex: 0 });
+        setEditableText(variants[0].content);
+      }
+      setTextComment('');
     } catch (e: any) {
       alert("Ошибка ИИ: " + e.message);
     } finally {
@@ -265,26 +284,45 @@ const App: React.FC = () => {
     }
   };
 
-  const handleManualPublish = async () => {
-    if (!manualText.trim()) return alert("Текст поста не может быть пустым");
-    if (selectedAccountIds.length === 0) return alert("Выберите хотя бы одну площадку");
+  const handleManualPublish = async (retryOnly: boolean = false) => {
+    const textToPost = manualText || editableText;
+    if (!textToPost.trim()) return alert("Текст поста не может быть пустым");
+    
+    let targetIds = selectedAccountIds;
+    if (retryOnly && deployResults) {
+      targetIds = deployResults
+        .filter(r => r.status === 'failed')
+        .map(r => {
+           const acc = accounts.find(a => a.name === r.name);
+           return acc ? acc.id : null;
+        })
+        .filter(id => id !== null) as string[];
+    }
+
+    if (targetIds.length === 0) return alert("Выберите площадки для публикации");
 
     setIsDeploying(true);
     setProcessingStatus('Публикуем контент на площадки...');
-    setDeployResults(null);
     try {
       const result = await postToPlatforms({
-        id: 'manual_' + Date.now(),
+        id: selectedArticle?.id || 'manual_' + Date.now(),
         userId: user?.id || '',
-        source: 'Manual Creator',
-        originalText: manualText,
-        rewrittenText: manualText,
-        generatedImageUrl: manualImageUrl,
+        source: selectedArticle?.source || 'Manual Creator',
+        originalText: selectedArticle?.originalText || manualText,
+        rewrittenText: textToPost,
+        generatedImageUrl: selectedArticle?.generatedImageUrl || manualImageUrl,
         timestamp: new Date().toISOString(),
         status: 'approved'
-      }, false, selectedAccountIds);
+      }, false, targetIds);
       
-      setDeployResults(result.results || []);
+      // Merge results if we are retrying
+      if (retryOnly && deployResults) {
+        const newResultsMap = new Map(result.results.map((r: any) => [r.name, r]));
+        const updatedResults = deployResults.map(r => newResultsMap.get(r.name) || r);
+        setDeployResults(updatedResults);
+      } else {
+        setDeployResults(result.results || []);
+      }
     } catch (e: any) {
       alert("Ошибка публикации: " + e.message);
     } finally {
@@ -335,20 +373,38 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeploy = async (preview: boolean = false) => {
+  const handleDeploy = async (preview: boolean = false, retryOnly: boolean = false) => {
     if (!selectedArticle) return;
-    if (selectedAccountIds.length === 0) return alert("Выберите хотя бы одну площадку");
+    
+    let targetIds = selectedAccountIds;
+    if (retryOnly && deployResults) {
+      targetIds = deployResults
+        .filter(r => r.status === 'failed')
+        .map(r => {
+           const acc = accounts.find(a => a.name === r.name);
+           return acc ? acc.id : null;
+        })
+        .filter(id => id !== null) as string[];
+    }
+
+    if (targetIds.length === 0) return alert("Выберите хотя бы одну площадку");
 
     setIsDeploying(true);
     setProcessingStatus('Идет публикация в выбранные каналы...');
-    if (!preview) setDeployResults(null);
     try {
       const result = await postToPlatforms(
         { ...selectedArticle, rewrittenText: editableText }, 
         preview, 
-        selectedAccountIds
+        targetIds
       );
-      setDeployResults(result.results || []);
+      
+      if (retryOnly && deployResults) {
+        const newResultsMap = new Map(result.results.map((r: any) => [r.name, r]));
+        const updatedResults = deployResults.map(r => newResultsMap.get(r.name) || r);
+        setDeployResults(updatedResults);
+      } else {
+        setDeployResults(result.results || []);
+      }
     } catch (e: any) {
       alert("Ошибка: " + e.message);
     } finally {
@@ -356,6 +412,10 @@ const App: React.FC = () => {
       setProcessingStatus('');
     }
   };
+
+  const hasFailures = useMemo(() => {
+    return deployResults?.some(r => r.status === 'failed') || false;
+  }, [deployResults]);
 
   const renderAccountIcon = (platform: Platform) => {
     switch(platform) {
@@ -473,15 +533,28 @@ const App: React.FC = () => {
                       placeholder="Напишите тезисы или тему..." 
                       value={manualText}
                       onChange={e => setManualText(e.target.value)}
-                      className="w-full min-h-[300px] sm:min-h-[400px] bg-slate-900/50 border border-slate-800 rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 text-base sm:text-lg text-white outline-none focus:border-indigo-500 transition-all resize-none mb-6 sm:mb-8"
+                      className="w-full min-h-[300px] sm:min-h-[400px] bg-slate-900/50 border border-slate-800 rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 text-base sm:text-lg text-white outline-none focus:border-indigo-500 transition-all resize-none mb-6"
                     />
+
+                    <div className="flex flex-col gap-4 mb-8">
+                       <div className="flex items-center gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                          <MessageSquareQuote size={18} className="text-indigo-400 shrink-0"/>
+                          <input 
+                            type="text" 
+                            placeholder="Комментарий для ИИ (например: сделай короче)" 
+                            value={textComment}
+                            onChange={e => setTextComment(e.target.value)}
+                            className="bg-transparent border-none outline-none text-xs sm:text-sm text-white w-full"
+                          />
+                       </div>
+                    </div>
 
                     <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
                        <button 
-                         onClick={handleManualAiRewrite} 
+                         onClick={() => handleManualAiRewrite(textComment)} 
                          className="bg-indigo-600 hover:bg-indigo-500 px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl sm:rounded-[24px] font-black text-white flex items-center justify-center gap-2 transition-all shadow-xl shadow-indigo-600/20"
                        >
-                         <Wand2 size={20}/> {postLength === 'post' ? 'Написать пост' : 'Написать статью'}
+                         {textComment ? <><RefreshCcw size={20}/> Перегенерировать</> : <><Wand2 size={20}/> {postLength === 'post' ? 'Написать пост' : 'Написать статью'}</>}
                        </button>
                        
                        <div className="flex flex-col sm:flex-row bg-slate-900/50 p-1.5 sm:p-2 rounded-xl sm:rounded-[24px] border border-slate-800 gap-2 items-center">
@@ -499,14 +572,24 @@ const App: React.FC = () => {
                     <div className="glass p-6 sm:p-10 rounded-[32px] sm:rounded-[48px] border border-slate-800 animate-in fade-in zoom-in duration-500">
                        <div className="flex justify-between items-center mb-6">
                          <h4 className="text-sm font-black uppercase text-slate-500 tracking-widest">Визуал</h4>
-                         <button onClick={handleManualGenerateImage} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300">ПЕРЕРИСОВАТЬ</button>
+                         <button onClick={() => handleManualGenerateImage(imageComment)} className="text-[10px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest">Обновить визуал</button>
                        </div>
-                       <img src={manualImageUrl} className="w-full rounded-[24px] sm:rounded-[32px] border border-slate-800 shadow-2xl" alt="Preview" />
+                       <img src={manualImageUrl} className="w-full rounded-[24px] sm:rounded-[32px] border border-slate-800 shadow-2xl mb-6" alt="Preview" />
+                       <div className="flex items-center gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                          <ImageIcon size={18} className="text-indigo-400 shrink-0"/>
+                          <input 
+                            type="text" 
+                            placeholder="Что изменить на картинке? (например: добавь закат)" 
+                            value={imageComment}
+                            onChange={e => setImageComment(e.target.value)}
+                            className="bg-transparent border-none outline-none text-xs sm:text-sm text-white w-full"
+                          />
+                       </div>
                     </div>
                   )}
                   
                   {!manualImageUrl && manualText.trim().length > 10 && (
-                    <button onClick={handleManualGenerateImage} className="w-full py-12 sm:py-16 glass border-2 border-dashed border-slate-800 rounded-[32px] sm:rounded-[40px] text-slate-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-all flex flex-col items-center gap-4">
+                    <button onClick={() => handleManualGenerateImage()} className="w-full py-12 sm:py-16 glass border-2 border-dashed border-slate-800 rounded-[32px] sm:rounded-[40px] text-slate-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-all flex flex-col items-center gap-4">
                        <ImageIconLucide size={40} className="opacity-20" />
                        <span className="font-bold uppercase tracking-widest text-[11px] px-6 text-center">Создать иллюстрацию Gemini</span>
                     </button>
@@ -553,19 +636,30 @@ const App: React.FC = () => {
 
                     {!deployResults ? (
                       <button 
-                        onClick={handleManualPublish}
+                        onClick={() => handleManualPublish(false)}
                         disabled={isDeploying || !manualText.trim()}
                         className="w-full py-5 sm:py-6 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-[20px] sm:rounded-3xl font-black text-white uppercase text-xs tracking-widest shadow-2xl shadow-indigo-600/40 transition-all flex items-center justify-center gap-3"
                       >
                         {isDeploying ? <Loader2 className="animate-spin" /> : <><Rocket size={20}/> Опубликовать</>}
                       </button>
                     ) : (
-                      <button 
-                        onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); }} 
-                        className="w-full py-5 sm:py-6 bg-slate-800 hover:bg-slate-700 rounded-[20px] sm:rounded-3xl font-black text-white uppercase text-xs tracking-widest transition-all"
-                      >
-                        Новый пост
-                      </button>
+                      <div className="space-y-4">
+                         {hasFailures && (
+                           <button 
+                             onClick={() => handleManualPublish(true)}
+                             disabled={isDeploying}
+                             className="w-full py-5 sm:py-6 bg-orange-600 hover:bg-orange-500 rounded-[20px] sm:rounded-3xl font-black text-white uppercase text-xs tracking-widest shadow-xl shadow-orange-600/20 transition-all flex items-center justify-center gap-3"
+                           >
+                             {isDeploying ? <Loader2 className="animate-spin" /> : <><RefreshCw size={18}/> Попробовать еще раз</>}
+                           </button>
+                         )}
+                         <button 
+                           onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); setTextComment(''); setImageComment(''); }} 
+                           className="w-full py-5 sm:py-6 bg-slate-800 hover:bg-slate-700 rounded-[20px] sm:rounded-3xl font-black text-white uppercase text-xs tracking-widest transition-all"
+                         >
+                           Новый пост
+                         </button>
+                      </div>
                     )}
                   </div>
                </div>
@@ -723,7 +817,7 @@ const App: React.FC = () => {
                     <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="lg:hidden"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
-                     <div className="lg:col-span-5 space-y-4 lg:space-y-5 order-2 lg:order-1">
+                     <div className="lg:col-span-5 space-y-4 lg:space-y-6 order-2 lg:order-1">
                         <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-2">Варианты ИИ</label>
                         {selectedArticle.rewrittenVariants?.map((variant, idx) => (
                            <button key={idx} onClick={() => { setEditableText(variant.content); setSelectedArticle({...selectedArticle, selectedVariantIndex: idx}); }} className={`w-full p-5 lg:p-6 rounded-2xl lg:rounded-3xl border text-left transition-all ${selectedArticle.selectedVariantIndex === idx ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/40 border-slate-800 hover:border-slate-700'}`}>
@@ -731,10 +825,42 @@ const App: React.FC = () => {
                               <p className="text-[12px] sm:text-sm text-slate-300 line-clamp-3 leading-relaxed">{variant.content}</p>
                            </button>
                         ))}
+                        <div className="pt-4 border-t border-slate-800 space-y-4">
+                           <div className="flex items-center gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                              <MessageSquareQuote size={18} className="text-indigo-400 shrink-0"/>
+                              <input 
+                                type="text" 
+                                placeholder="Что исправить в тексте?" 
+                                value={textComment}
+                                onChange={e => setTextComment(e.target.value)}
+                                className="bg-transparent border-none outline-none text-xs text-white w-full"
+                              />
+                           </div>
+                           <button onClick={() => handleManualAiRewrite(textComment)} className="w-full py-4 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-indigo-400 text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
+                              <RefreshCcw size={16}/> Перегенерировать текст
+                           </button>
+                        </div>
                      </div>
                      <div className="lg:col-span-7 space-y-6 lg:space-y-8 order-1 lg:order-2">
                         {selectedArticle.generatedImageUrl && (
-                          <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[24px] lg:rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
+                          <div className="space-y-4">
+                             <img src={selectedArticle.generatedImageUrl} className="w-full rounded-[24px] lg:rounded-[40px] border border-slate-800 shadow-2xl" alt="Preview" />
+                             <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1 flex items-center gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                                   <ImageIcon size={18} className="text-indigo-400 shrink-0"/>
+                                   <input 
+                                     type="text" 
+                                     placeholder="Корректировка образа..." 
+                                     value={imageComment}
+                                     onChange={e => setImageComment(e.target.value)}
+                                     className="bg-transparent border-none outline-none text-xs text-white w-full"
+                                   />
+                                </div>
+                                <button onClick={() => handleManualGenerateImage(imageComment)} className="px-6 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold text-indigo-400 text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all">
+                                   <RefreshCcw size={16}/> Обновить
+                                </button>
+                             </div>
+                          </div>
                         )}
                         <textarea 
                            value={editableText}
@@ -779,9 +905,20 @@ const App: React.FC = () => {
                      )}
                   </div>
                   {!deployResults ? (
-                    <button onClick={() => handleDeploy(false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all shadow-xl shadow-indigo-600/20">Опубликовать</button>
+                    <button onClick={() => handleDeploy(false, false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all shadow-xl shadow-indigo-600/20">Опубликовать</button>
                   ) : (
-                    <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-[16px] lg:rounded-[24px] font-black uppercase text-[10px]">Закрыть</button>
+                    <div className="space-y-4">
+                       {hasFailures && (
+                         <button 
+                           onClick={() => handleDeploy(false, true)} 
+                           disabled={isDeploying}
+                           className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-orange-600 hover:bg-orange-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-2"
+                         >
+                           {isDeploying ? <Loader2 size={16} className="animate-spin"/> : <><RefreshCw size={16}/> Повторить неудачные</>}
+                         </button>
+                       )}
+                       <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full py-4 lg:py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-[16px] lg:rounded-[24px] font-black uppercase text-[10px]">Закрыть</button>
+                    </div>
                   )}
                </div>
             </div>

@@ -19,16 +19,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (task === 'rewrite') {
       const input = cleanText(payload.text);
       const length = payload.length || 'post';
+      const comment = cleanText(payload.comment);
       if (!input) throw new Error("Пустой текст для обработки");
 
       let promptInstruction = "";
       if (length === 'post') {
         promptInstruction = "Сгенерируй 3 живых, вовлекающих варианта поста для соцсетей. Пиши как человек для людей, используй уместное количество эмодзи. Сделай текст энергичным и понятным.";
       } else if (length === 'article') {
-        promptInstruction = "Сгенерируй 3 экспертных статьи с естественным повествованием. Пиши живым, профессиональным языком. СТРОГО ЗАПРЕЩЕНО использовать заголовки типа 'Введение', 'Основная часть', 'Заключение' или 'Выводы'. Текст должен плавно перетекать из одной мысли в другую.";
+        promptInstruction = "Сгенерируй 3 экспертных статьи с естественным повествованием. Пиши живым, профессиональным языком. СТРОГО ЗАПРЕЩЕНО использовать заголовки типа 'Введение', 'Основная часть', 'Заключение' или 'Выводы'.";
       } else if (length === 'longread') {
-        promptInstruction = "Сгенерируй 3 глубоких лонгрида. Используй интересные подзаголовки (но не технические), списки и глубокую аналитику. Пиши в стиле качественного блога или статьи на VC. Избегай школьной структуры 'Введение-Основная часть'.";
+        promptInstruction = "Сгенерируй 3 глубоких лонгрида. Используй интересные подзаголовки, списки и глубокую аналитику. Пиши в стиле качественного блога или статьи на VC.";
       }
+
+      const refinementNote = comment ? `\nОБРАТИ ВНИМАНИЕ НА ПОЖЕЛАНИЕ ПОЛЬЗОВАТЕЛЯ: "${comment}". Измени или скорректируй текст в соответствии с этим комментарием.` : "";
 
       const companyContext = `
       ОБЯЗАТЕЛЬНО: Органично впиши в текст упоминание компании 'Федеральный Ипотечный Сервис'. 
@@ -42,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `${promptInstruction} ${companyContext} ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ. Избегай канцеляризмов и официоза.
+        contents: `${promptInstruction} ${refinementNote} ${companyContext} ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
         Вариант 1: Полезный / Образовательный.
         Вариант 2: Дружелюбный / Совет от профи.
         Вариант 3: Трендовый / Взгляд на рынок.
@@ -74,9 +77,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (task === 'vision') {
       const input = cleanText(payload.text);
+      const comment = cleanText(payload.comment);
+      
+      const refinementNote = comment ? `\nUSER SPECIFIC FEEDBACK: "${comment}". Apply these changes to the visual concept.` : "";
+
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Create a high-end commercial photo prompt for image generation based on this real estate/finance topic: ${input.substring(0, 500)}. Style: Professional photography, warm lighting, elegant interiors or abstract concepts of stability. No text in image.`,
+        contents: `Create a high-end commercial photo prompt for image generation based on this real estate/finance topic: ${input.substring(0, 500)}. ${refinementNote} Style: Professional photography, warm lighting, elegant interiors or abstract concepts of stability. No text in image. Output English prompt.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {

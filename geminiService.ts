@@ -1,11 +1,11 @@
 
 import { RewriteVariant } from './types';
 
-export const rewriteArticle = async (text: string, length: 'post' | 'article' | 'longread' = 'post'): Promise<RewriteVariant[]> => {
+export const rewriteArticle = async (text: string, length: 'post' | 'article' | 'longread' = 'post', comment?: string): Promise<RewriteVariant[]> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task: 'rewrite', payload: { text, length } })
+    body: JSON.stringify({ task: 'rewrite', payload: { text, length, comment } })
   });
   
   if (!response.ok) {
@@ -17,11 +17,11 @@ export const rewriteArticle = async (text: string, length: 'post' | 'article' | 
   return data.variants;
 };
 
-export const extractVisualPrompt = async (text: string): Promise<string> => {
+export const extractVisualPrompt = async (text: string, comment?: string): Promise<string> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task: 'vision', payload: { text } })
+    body: JSON.stringify({ task: 'vision', payload: { text, comment } })
   });
   
   if (!response.ok) throw new Error("Не удалось создать концепт изображения");
