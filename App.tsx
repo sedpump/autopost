@@ -301,7 +301,9 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setProcessingStatus('Gemini анализирует контент...');
     try {
-      const variants = await rewriteArticle(article.originalText, 'post');
+      // При обработке из входящих используем экспертный стиль по умолчанию, 
+      // но Gemini теперь знает про Федеральный Ипотечный Сервис.
+      const variants = await rewriteArticle(article.originalText, 'article');
       setEditableText(variants[0].content);
       
       const initialApproved: Article = {
@@ -335,13 +337,16 @@ const App: React.FC = () => {
 
   const handleDeploy = async (preview: boolean = false) => {
     if (!selectedArticle) return;
+    if (selectedAccountIds.length === 0) return alert("Выберите хотя бы одну площадку");
+
     setIsDeploying(true);
     if (!preview) setDeployResults(null);
     try {
-      const result = await postToPlatforms({ 
-        ...selectedArticle, 
-        rewrittenText: editableText 
-      }, preview);
+      const result = await postToPlatforms(
+        { ...selectedArticle, rewrittenText: editableText }, 
+        preview, 
+        selectedAccountIds // Теперь передаем выбранные аккаунты!
+      );
       setDeployResults(result.results);
     } catch (e: any) {
       alert("Ошибка: " + e.message);
@@ -727,7 +732,7 @@ const App: React.FC = () => {
                <div className="w-full lg:w-[350px] p-8 lg:p-12 bg-slate-950/60 backdrop-blur-md flex flex-col shrink-0">
                   <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="hidden lg:block self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
                   <div className="flex-1 space-y-3 lg:space-y-4 overflow-y-auto mb-6 lg:mb-0">
-                     <h5 className="text-[10px] font-black uppercase text-slate-500 mb-3 lg:mb-4 px-2">Каналы</h5>
+                     <h5 className="text-[10px] font-black uppercase text-slate-500 mb-3 lg:mb-4 px-2">Выберите каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (
                         <div key={idx} className={`p-4 rounded-xl lg:rounded-2xl border ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                            <div className="flex justify-between items-center text-[11px] font-bold">
@@ -736,14 +741,21 @@ const App: React.FC = () => {
                            </div>
                         </div>
                      )) : accounts.map(acc => (
-                        <div key={acc.id} className="p-3 lg:p-4 rounded-xl lg:rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-between">
-                           <span className="text-[11px] font-bold text-white truncate max-w-[150px]">{acc.name}</span>
-                           <div className="text-slate-700">{renderAccountIcon(acc.platform)}</div>
-                        </div>
+                        <button 
+                          key={acc.id} 
+                          onClick={() => toggleAccountSelection(acc.id)}
+                          className={`w-full p-3 lg:p-4 rounded-xl lg:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/50 border-slate-800/50'}`}
+                        >
+                           <div className="flex items-center gap-2">
+                             <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
+                             <span className="text-[11px] font-bold text-white truncate max-w-[120px]">{acc.name}</span>
+                           </div>
+                           {selectedAccountIds.includes(acc.id) && <Check size={14} className="text-indigo-400"/>}
+                        </button>
                      ))}
                   </div>
                   {!deployResults ? (
-                    <button onClick={() => handleDeploy(false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all">Опубликовать во все</button>
+                    <button onClick={() => handleDeploy(false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all">Опубликовать</button>
                   ) : (
                     <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-[16px] lg:rounded-[24px] font-black uppercase text-[10px]">Закрыть</button>
                   )}
