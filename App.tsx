@@ -301,8 +301,6 @@ const App: React.FC = () => {
     setIsProcessing(true);
     setProcessingStatus('Gemini анализирует контент...');
     try {
-      // При обработке из входящих используем экспертный стиль по умолчанию, 
-      // но Gemini теперь знает про Федеральный Ипотечный Сервис.
       const variants = await rewriteArticle(article.originalText, 'article');
       setEditableText(variants[0].content);
       
@@ -345,7 +343,7 @@ const App: React.FC = () => {
       const result = await postToPlatforms(
         { ...selectedArticle, rewrittenText: editableText }, 
         preview, 
-        selectedAccountIds // Теперь передаем выбранные аккаунты!
+        selectedAccountIds
       );
       setDeployResults(result.results);
     } catch (e: any) {
@@ -544,9 +542,14 @@ const App: React.FC = () => {
                       <div className="space-y-4">
                         <h5 className="text-[10px] font-black uppercase text-indigo-400 text-center mb-4">Результат</h5>
                         {deployResults.map((res: any, idx: number) => (
-                           <div key={idx} className={`p-4 rounded-xl border flex justify-between items-center text-xs font-bold ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
-                             <span>{res.name}</span>
-                             {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
+                           <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
+                             <div className="flex justify-between items-center text-xs font-bold">
+                                <span>{res.name}</span>
+                                {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
+                             </div>
+                             {res.status === 'failed' && res.error && (
+                               <p className="text-[10px] font-medium leading-tight mt-1 opacity-80">{res.error}</p>
+                             )}
                            </div>
                         ))}
                         <button onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); }} className="w-full py-4 mt-4 bg-slate-800 rounded-2xl font-bold text-white text-xs">Новый пост</button>
@@ -734,11 +737,14 @@ const App: React.FC = () => {
                   <div className="flex-1 space-y-3 lg:space-y-4 overflow-y-auto mb-6 lg:mb-0">
                      <h5 className="text-[10px] font-black uppercase text-slate-500 mb-3 lg:mb-4 px-2">Выберите каналы</h5>
                      {deployResults ? deployResults.map((res: any, idx: number) => (
-                        <div key={idx} className={`p-4 rounded-xl lg:rounded-2xl border ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                        <div key={idx} className={`p-4 rounded-xl lg:rounded-2xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
                            <div className="flex justify-between items-center text-[11px] font-bold">
-                             <span className="text-white truncate max-w-[150px]">{res.name}</span>
-                             {res.status === 'success' ? <CheckCircle size={14} className="text-emerald-500"/> : <ShieldAlert size={14} className="text-red-500"/>}
+                             <span className="truncate max-w-[150px]">{res.name}</span>
+                             {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
                            </div>
+                           {res.status === 'failed' && res.error && (
+                             <p className="text-[9px] font-medium leading-tight opacity-70 break-words">{res.error}</p>
+                           )}
                         </div>
                      )) : accounts.map(acc => (
                         <button 
