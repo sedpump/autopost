@@ -66,166 +66,59 @@ async function publishToVK(accessToken: string, ownerId: string, text: string, i
   const targetId = `-${rawGroupId}`; 
   
   const vkPost = async (method: string, data: any) => {
-    const fullParams = {
-      ...data,
-      access_token: token,
-      v: '5.131'
-    };
-    
-    const fullUrl = `https://api.vk.com/method/${method}`;
-    const rawRequestString = `METHOD: ${method}\nURL: ${fullUrl}\nPAYLOAD: ${JSON.stringify(fullParams, null, 2)}`;
-
-    if (previewOnly && method === 'wall.post') {
-      const err = new Error("PREVIEW_MODE") as any;
-      err.debugData = { 
-        request: rawRequestString, 
-        response: "--- РЕЖИМ ПРЕДПРОСМОТРА ---" 
-      };
-      throw err;
-    }
-
+    const fullParams = { ...data, access_token: token, v: '5.131' };
     try {
       const params = new URLSearchParams();
-      for (const key in fullParams) {
-        params.append(key, String(fullParams[key]));
-      }
-
-      const response = await axios.post(fullUrl, params, {
+      for (const key in fullParams) params.append(key, String(fullParams[key]));
+      const response = await axios.post(`https://api.vk.com/method/${method}`, params, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 25000
       });
-      
-      if (response.data.error) {
-        const err = new Error(response.data.error.error_msg) as any;
-        err.errorCode = response.data.error.error_code;
-        err.debugData = {
-          request: rawRequestString,
-          response: JSON.stringify(response.data, null, 2)
-        };
-        throw err;
-      }
+      if (response.data.error) throw new Error(response.data.error.error_msg);
       return response.data.response;
-    } catch (err: any) {
-      if (err.message === "PREVIEW_MODE") throw err;
-      if (!err.debugData) {
-        err.debugData = {
-          request: rawRequestString,
-          response: err.response?.data ? JSON.stringify(err.response.data, null, 2) : err.message
-        };
-      }
-      throw err;
-    }
+    } catch (err: any) { throw err; }
   };
 
   let attachments = '';
-  let photoLogs = [];
-
   if (image) {
     try {
-      if (!previewOnly) {
-        const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
-        const buffer = await getImageBuffer(image);
-        if (buffer) {
-          const form = new FormData();
-          form.append('photo', buffer, { filename: 'image.png' });
-          const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
-          
-          const saved = await vkPost('photos.saveWallPhoto', {
-            group_id: rawGroupId,
-            photo: uploadRes.data.photo,
-            server: uploadRes.data.server,
-            hash: uploadRes.data.hash
-          });
-          
-          if (saved && saved.length > 0) {
-            attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
-          }
-        }
-      } else {
-        attachments = `photo12345_67890`;
+      const uploadServer = await vkPost('photos.getWallUploadServer', { group_id: rawGroupId });
+      const buffer = await getImageBuffer(image);
+      if (buffer) {
+        const form = new FormData();
+        form.append('photo', buffer, { filename: 'image.png' });
+        const uploadRes = await axios.post(uploadServer.upload_url, form, { headers: form.getHeaders() });
+        const saved = await vkPost('photos.saveWallPhoto', {
+          group_id: rawGroupId,
+          photo: uploadRes.data.photo,
+          server: uploadRes.data.server,
+          hash: uploadRes.data.hash
+        });
+        if (saved && saved.length > 0) attachments = `photo${saved[0].owner_id}_${saved[0].id}`;
       }
-    } catch (e: any) {
-      photoLogs.push(`Ошибка фото: ${e.message}`);
-      console.error("VK Photo Step Failed, continuing to text post...", e.message);
-    }
+    } catch (e) {}
   }
 
-  try {
-    const postData: any = {
-      owner_id: targetId,
-      from_group: 1,
-      message: text || ''
-    };
-    
-    if (attachments) {
-      postData.attachments = attachments;
-    }
-    
-    await vkPost('wall.post', postData);
-  } catch (e: any) {
-    const finalErr = new Error(e.message) as any;
-    finalErr.debugData = e.debugData;
-    if (photoLogs.length > 0) finalErr.message += ` (Доп. ошибки: ${photoLogs.join(', ')})`;
-    throw finalErr;
-  }
+  await vkPost('wall.post', { owner_id: targetId, from_group: 1, message: text || '', attachments });
 }
 
 async function publishToInstagram(accessToken: string, igUserId: string, text: string, image?: string, previewOnly: boolean = false) {
   const token = accessToken.trim();
   const userId = igUserId.trim();
 
-  if (image && image.startsWith('data:image')) {
-    throw new Error("Instagram требует публичную URL-ссылку на изображение. Подождите, пока картинка загрузится в облако.");
-  }
-
   const igPost = async (endpoint: string, params: any) => {
     const url = `https://graph.facebook.com/v19.0/${endpoint}`;
-    const fullParams = { ...params, access_token: token };
-    
-    if (previewOnly && endpoint.includes('media_publish')) {
-       const err = new Error("PREVIEW_MODE") as any;
-       err.debugData = { request: `POST ${url}\n${JSON.stringify(fullParams)}`, response: "--- ПРЕДПРОСМОТРА ---" };
-       throw err;
-    }
-
-    try {
-      const response = await axios.post(url, fullParams, { timeout: 30000 });
-      return response.data;
-    } catch (err: any) {
-      const msg = err.response?.data?.error?.message || err.message;
-      const error = new Error(`Instagram Error: ${msg}`) as any;
-      error.debugData = { 
-        request: `POST ${url}`, 
-        response: JSON.stringify(err.response?.data || {}, null, 2) 
-      };
-      throw error;
-    }
+    const response = await axios.post(url, { ...params, access_token: token }, { timeout: 30000 });
+    return response.data;
   };
 
   try {
-    // 1. Создаем медиа-контейнер
-    const container = await igPost(`${userId}/media`, {
-      image_url: image,
-      caption: text
-    });
-
-    if (!container || !container.id) {
-      throw new Error("Instagram не вернул ID контейнера при создании медиа.");
-    }
-
-    // КРИТИЧЕСКИ ВАЖНО: Ждем 5-7 секунд, чтобы Facebook успел скачать и обработать картинку
-    // по внешней ссылке из Supabase, прежде чем мы попросим её опубликовать.
-    if (!previewOnly) {
-      await new Promise(resolve => setTimeout(resolve, 7000));
-    }
-
-    // 2. Публикуем контейнер
-    await igPost(`${userId}/media_publish`, {
-      creation_id: container.id
-    });
+    const container = await igPost(`${userId}/media`, { image_url: image, caption: text });
+    await new Promise(resolve => setTimeout(resolve, 7000));
+    await igPost(`${userId}/media_publish`, { creation_id: container.id });
   } catch (e: any) {
-    if (e.message === "PREVIEW_MODE") throw e;
-    throw e;
+    const msg = e.response?.data?.error?.message || e.message;
+    throw new Error(`Instagram Error: ${msg}`);
   }
 }
 
@@ -235,9 +128,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!userId) return res.status(401).send('Unauthorized');
 
   const isPreview = req.query.preview === 'true';
-  const { text, image } = req.body;
-  const { data: accounts } = await supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
+  const { text, image, accountIds } = req.body;
+  
+  let query = supabase.from('target_accounts').select('*').eq('user_id', userId).eq('is_active', true);
+  
+  // Если переданы конкретные ID, выбираем только их
+  if (accountIds && Array.isArray(accountIds) && accountIds.length > 0) {
+    query = query.in('id', accountIds);
+  }
 
+  const { data: accounts } = await query;
   if (!accounts) return res.json({ results: [] });
 
   const results = [];
@@ -248,20 +148,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image, isPreview);
         results.push({ name: acc.name, status: 'success' });
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
-        if (!isPreview) await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
-        results.push({ name: acc.name, status: isPreview ? 'failed' : 'success', error: isPreview ? 'Превью не поддерживается' : undefined });
+        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
+        results.push({ name: acc.name, status: 'success' });
       } else if (p === 'INSTAGRAM' || p === 'ИНСТАГРАМ') {
-        const igUserId = acc.credentials.igUserId || acc.credentials.instagramId; // Поддержка обоих вариантов ключа
+        const igUserId = acc.credentials.igUserId || acc.credentials.instagramId;
         await publishToInstagram(acc.credentials.accessToken, igUserId, text, image, isPreview);
         results.push({ name: acc.name, status: 'success' });
+      } else {
+        results.push({ name: acc.name, status: 'failed', error: 'Platform not implemented' });
       }
     } catch (e: any) {
-      results.push({ 
-        name: acc.name, 
-        status: 'failed', 
-        error: e.message === "PREVIEW_MODE" ? "Режим предпросмотра" : e.message,
-        debugData: e.debugData 
-      });
+      results.push({ name: acc.name, status: 'failed', error: e.message });
     }
   }
   res.status(200).json({ results });

@@ -112,14 +112,15 @@ export const uploadImage = async (imageBase64: string): Promise<string> => {
   return data.url;
 };
 
-export const postToPlatforms = async (article: Article, preview: boolean = false) => {
+export const postToPlatforms = async (article: Article, preview: boolean = false, accountIds?: string[]) => {
   const response = await fetch(`/api/publish${preview ? '?preview=true' : ''}`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({
       articleId: article.id,
       text: article.rewrittenText,
-      image: article.generatedImageUrl
+      image: article.generatedImageUrl,
+      accountIds // Передаем список выбранных аккаунтов
     })
   });
   
