@@ -270,6 +270,7 @@ const App: React.FC = () => {
     if (selectedAccountIds.length === 0) return alert("Выберите хотя бы одну площадку");
 
     setIsDeploying(true);
+    setProcessingStatus('Публикуем контент на площадки...');
     setDeployResults(null);
     try {
       const result = await postToPlatforms({
@@ -283,11 +284,12 @@ const App: React.FC = () => {
         status: 'approved'
       }, false, selectedAccountIds);
       
-      setDeployResults(result.results);
+      setDeployResults(result.results || []);
     } catch (e: any) {
       alert("Ошибка публикации: " + e.message);
     } finally {
       setIsDeploying(false);
+      setProcessingStatus('');
     }
   };
 
@@ -338,6 +340,7 @@ const App: React.FC = () => {
     if (selectedAccountIds.length === 0) return alert("Выберите хотя бы одну площадку");
 
     setIsDeploying(true);
+    setProcessingStatus('Идет публикация в выбранные каналы...');
     if (!preview) setDeployResults(null);
     try {
       const result = await postToPlatforms(
@@ -345,11 +348,12 @@ const App: React.FC = () => {
         preview, 
         selectedAccountIds
       );
-      setDeployResults(result.results);
+      setDeployResults(result.results || []);
     } catch (e: any) {
       alert("Ошибка: " + e.message);
     } finally {
       setIsDeploying(false);
+      setProcessingStatus('');
     }
   };
 
@@ -511,21 +515,38 @@ const App: React.FC = () => {
 
                <div className="lg:col-span-4 space-y-8">
                   <div className="glass p-6 sm:p-10 rounded-[32px] sm:rounded-[40px] border border-slate-800 lg:sticky lg:top-28">
-                    <h3 className="text-xl font-black text-white mb-6 sm:mb-8">Где постим?</h3>
-                    <div className="space-y-2 sm:space-y-3">
-                       {accounts.map(acc => (
-                         <button 
-                           key={acc.id} 
-                           onClick={() => toggleAccountSelection(acc.id)}
-                           className={`w-full p-4 sm:p-5 rounded-xl sm:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
-                         >
-                           <div className="flex items-center gap-3 sm:gap-4">
-                             <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
-                             <span className="font-bold text-sm">{acc.name}</span>
+                    <h3 className="text-xl font-black text-white mb-6 sm:mb-8">{deployResults ? 'Логи публикации' : 'Где постим?'}</h3>
+                    
+                    <div className="space-y-2 sm:space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                       {!deployResults ? (
+                         accounts.map(acc => (
+                           <button 
+                             key={acc.id} 
+                             onClick={() => toggleAccountSelection(acc.id)}
+                             className={`w-full p-4 sm:p-5 rounded-xl sm:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
+                           >
+                             <div className="flex items-center gap-3 sm:gap-4">
+                               <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
+                               <span className="font-bold text-sm truncate max-w-[150px]">{acc.name}</span>
+                             </div>
+                             {selectedAccountIds.includes(acc.id) ? <CheckCircle size={18} className="text-indigo-400"/> : <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-800"></div>}
+                           </button>
+                         ))
+                       ) : (
+                         deployResults.length > 0 ? deployResults.map((res: any, idx: number) => (
+                           <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                             <div className="flex justify-between items-center text-xs font-bold">
+                                <span className="truncate max-w-[200px]">{res.name}</span>
+                                {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
+                             </div>
+                             {res.status === 'failed' && res.error && (
+                               <p className="text-[10px] font-medium leading-tight mt-1 opacity-90">{res.error}</p>
+                             )}
                            </div>
-                           {selectedAccountIds.includes(acc.id) ? <CheckCircle size={18} className="text-indigo-400"/> : <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-800"></div>}
-                         </button>
-                       ))}
+                         )) : (
+                            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-500 text-sm">Нет данных о результатах</div>
+                         )
+                       )}
                     </div>
 
                     <div className="h-px bg-slate-800 my-8 sm:my-10"></div>
@@ -539,21 +560,12 @@ const App: React.FC = () => {
                         {isDeploying ? <Loader2 className="animate-spin" /> : <><Rocket size={20}/> Опубликовать</>}
                       </button>
                     ) : (
-                      <div className="space-y-4">
-                        <h5 className="text-[10px] font-black uppercase text-indigo-400 text-center mb-4">Результат</h5>
-                        {deployResults.map((res: any, idx: number) => (
-                           <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
-                             <div className="flex justify-between items-center text-xs font-bold">
-                                <span>{res.name}</span>
-                                {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
-                             </div>
-                             {res.status === 'failed' && res.error && (
-                               <p className="text-[10px] font-medium leading-tight mt-1 opacity-80">{res.error}</p>
-                             )}
-                           </div>
-                        ))}
-                        <button onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); }} className="w-full py-4 mt-4 bg-slate-800 rounded-2xl font-bold text-white text-xs">Новый пост</button>
-                      </div>
+                      <button 
+                        onClick={() => { setDeployResults(null); setManualText(''); setManualImageUrl(''); setCreatorVariants([]); }} 
+                        className="w-full py-5 sm:py-6 bg-slate-800 hover:bg-slate-700 rounded-[20px] sm:rounded-3xl font-black text-white uppercase text-xs tracking-widest transition-all"
+                      >
+                        Новый пост
+                      </button>
                     )}
                   </div>
                </div>
@@ -735,33 +747,39 @@ const App: React.FC = () => {
                <div className="w-full lg:w-[350px] p-8 lg:p-12 bg-slate-950/60 backdrop-blur-md flex flex-col shrink-0">
                   <button onClick={() => { setSelectedArticle(null); setDeployResults(null); }} className="hidden lg:block self-end mb-12"><XCircle size={28} className="text-slate-600 hover:text-white"/></button>
                   <div className="flex-1 space-y-3 lg:space-y-4 overflow-y-auto mb-6 lg:mb-0">
-                     <h5 className="text-[10px] font-black uppercase text-slate-500 mb-3 lg:mb-4 px-2">Выберите каналы</h5>
-                     {deployResults ? deployResults.map((res: any, idx: number) => (
-                        <div key={idx} className={`p-4 rounded-xl lg:rounded-2xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-red-500/5 border-red-500/20 text-red-400'}`}>
-                           <div className="flex justify-between items-center text-[11px] font-bold">
-                             <span className="truncate max-w-[150px]">{res.name}</span>
-                             {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
-                           </div>
-                           {res.status === 'failed' && res.error && (
-                             <p className="text-[9px] font-medium leading-tight opacity-70 break-words">{res.error}</p>
-                           )}
-                        </div>
-                     )) : accounts.map(acc => (
-                        <button 
-                          key={acc.id} 
-                          onClick={() => toggleAccountSelection(acc.id)}
-                          className={`w-full p-3 lg:p-4 rounded-xl lg:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/50 border-slate-800/50'}`}
-                        >
-                           <div className="flex items-center gap-2">
-                             <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
-                             <span className="text-[11px] font-bold text-white truncate max-w-[120px]">{acc.name}</span>
-                           </div>
-                           {selectedAccountIds.includes(acc.id) && <Check size={14} className="text-indigo-400"/>}
-                        </button>
-                     ))}
+                     <h5 className="text-[10px] font-black uppercase text-slate-500 mb-3 lg:mb-4 px-2">{deployResults ? 'Результаты' : 'Выберите каналы'}</h5>
+                     {deployResults ? (
+                        deployResults.length > 0 ? deployResults.map((res: any, idx: number) => (
+                          <div key={idx} className={`p-4 rounded-xl lg:rounded-2xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                             <div className="flex justify-between items-center text-[11px] font-bold">
+                               <span className="truncate max-w-[150px] font-bold">{res.name}</span>
+                               {res.status === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
+                             </div>
+                             {res.status === 'failed' && res.error && (
+                               <p className="text-[9px] font-medium leading-tight opacity-90 break-words">{res.error}</p>
+                             )}
+                          </div>
+                        )) : (
+                          <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center text-slate-500 text-xs">Нет данных о публикации</div>
+                        )
+                     ) : (
+                        accounts.map(acc => (
+                          <button 
+                            key={acc.id} 
+                            onClick={() => toggleAccountSelection(acc.id)}
+                            className={`w-full p-3 lg:p-4 rounded-xl lg:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500' : 'bg-slate-900/50 border-slate-800/50'}`}
+                          >
+                             <div className="flex items-center gap-2">
+                               <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
+                               <span className="text-[11px] font-bold text-white truncate max-w-[120px]">{acc.name}</span>
+                             </div>
+                             {selectedAccountIds.includes(acc.id) && <Check size={14} className="text-indigo-400"/>}
+                          </button>
+                        ))
+                     )}
                   </div>
                   {!deployResults ? (
-                    <button onClick={() => handleDeploy(false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all">Опубликовать</button>
+                    <button onClick={() => handleDeploy(false)} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-indigo-600 hover:bg-indigo-500 rounded-[16px] lg:rounded-[24px] font-black text-white uppercase text-[10px] tracking-widest transition-all shadow-xl shadow-indigo-600/20">Опубликовать</button>
                   ) : (
                     <button onClick={() => { setSelectedArticle(null); setDeployResults(null); refreshData(); }} className="w-full mt-4 lg:mt-8 py-4 lg:py-5 bg-slate-800 hover:bg-slate-700 text-white rounded-[16px] lg:rounded-[24px] font-black uppercase text-[10px]">Закрыть</button>
                   )}
