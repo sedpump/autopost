@@ -93,6 +93,7 @@ const App: React.FC = () => {
   const [processingStatus, setProcessingStatus] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [viewingArticle, setViewingArticle] = useState<Article | null>(null); // New state for viewing full text
   const [editableText, setEditableText] = useState('');
   const [deployResults, setDeployResults] = useState<any[] | null>(null);
   
@@ -338,6 +339,7 @@ const App: React.FC = () => {
   };
 
   const handleApprove = async (article: Article) => {
+    setViewingArticle(null); // Close viewer if processing
     setIsProcessing(true);
     setProcessingStatus('Gemini анализирует контент...');
     try {
@@ -669,13 +671,23 @@ const App: React.FC = () => {
           {activeTab === 'inbox' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {articles.map(article => (
-                <div key={article.id} className="glass p-6 sm:p-8 rounded-[28px] sm:rounded-[32px] border border-slate-800/50 flex flex-col h-full hover:border-indigo-500/30 transition-all">
+                <div key={article.id} className="glass group p-6 sm:p-8 rounded-[28px] sm:rounded-[32px] border border-slate-800/50 flex flex-col h-full hover:border-indigo-500/30 transition-all">
                   <div className="flex justify-between items-center mb-6 text-[10px] font-bold text-indigo-400">
                     <span className="uppercase">{article.source}</span>
-                    <span className="text-slate-600">{article.timestamp}</span>
+                    <div className="flex items-center gap-2">
+                       <span className="text-slate-600">{article.timestamp}</span>
+                       <button onClick={() => setViewingArticle(article)} className="p-1.5 hover:bg-indigo-500/10 rounded-lg transition-colors text-slate-600 hover:text-indigo-400">
+                          <Maximize2 size={14} />
+                       </button>
+                    </div>
                   </div>
-                  <p className="text-slate-300 text-sm leading-relaxed mb-8 flex-1 line-clamp-5">{article.originalText}</p>
-                  <button onClick={() => handleApprove(article)} className="w-full py-4 rounded-xl sm:rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 text-sm">
+                  <div 
+                    onClick={() => setViewingArticle(article)}
+                    className="cursor-pointer group-hover:text-slate-100 transition-colors flex-1"
+                  >
+                    <p className="text-slate-300 text-sm leading-relaxed mb-8 line-clamp-5">{article.originalText}</p>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); handleApprove(article); }} className="w-full py-4 rounded-xl sm:rounded-2xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white transition-all flex items-center justify-center gap-2 text-sm">
                     <Sparkles size={16} /> Обработать Gemini
                   </button>
                 </div>
@@ -759,6 +771,32 @@ const App: React.FC = () => {
          <button onClick={() => setActiveTab('accounts')} className={`p-2 rounded-xl transition-all ${activeTab === 'accounts' ? 'text-indigo-400' : 'text-slate-500'}`}><UserCheck size={24}/></button>
          <button onClick={() => setActiveTab('settings')} className={`p-2 rounded-xl transition-all ${activeTab === 'settings' ? 'text-indigo-400' : 'text-slate-500'}`}><SettingsIcon size={24}/></button>
       </nav>
+
+      {/* Article Viewer Modal */}
+      {viewingArticle && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-10">
+           <div className="glass w-full max-w-4xl h-full max-h-[90vh] rounded-[32px] sm:rounded-[48px] border border-white/10 flex flex-col shadow-2xl animate-in zoom-in duration-300">
+              <div className="p-8 sm:p-12 border-b border-slate-800/50 flex justify-between items-center bg-slate-900/40">
+                 <div>
+                    <h3 className="text-2xl font-black text-white mb-2">Просмотр новости</h3>
+                    <p className="text-xs font-bold text-indigo-400 uppercase tracking-widest">{viewingArticle.source}</p>
+                 </div>
+                 <button onClick={() => setViewingArticle(null)} className="p-2 text-slate-500 hover:text-white transition-colors">
+                    <XCircle size={32} />
+                 </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-8 sm:p-12 space-y-6">
+                 <p className="text-slate-200 text-lg sm:text-xl leading-[1.6] font-medium whitespace-pre-wrap">{viewingArticle.originalText}</p>
+              </div>
+              <div className="p-8 sm:p-10 border-t border-slate-800/50 bg-slate-900/40 flex flex-col sm:flex-row gap-4">
+                 <button onClick={() => setViewingArticle(null)} className="flex-1 py-5 rounded-2xl sm:rounded-3xl border border-slate-800 text-slate-400 font-bold uppercase text-xs tracking-widest hover:bg-white/5 transition-all">Закрыть</button>
+                 <button onClick={() => handleApprove(viewingArticle)} className="flex-[2] py-5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl sm:rounded-3xl text-white font-black uppercase text-xs tracking-widest transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-3">
+                    <Sparkles size={20} /> Обработать Gemini
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
 
       {/* Overlays / Modals */}
       {showAddAccount && (
