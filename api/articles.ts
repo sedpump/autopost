@@ -33,37 +33,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const allArticles: any[] = [];
 
   // 2. Парсим каждый канал
+  const debugInfo: any[] = [];
   for (const sourceUrl of requestedSources) {
     try {
       if (sourceUrl.includes('instagram.com/') || sourceUrl.includes('picuki.com/')) {
         // Instagram parsing via Picuki
-        // Улучшенное извлечение username (учитываем слеши в конце)
         const urlParts = sourceUrl.split('/').filter((p: string) => p.length > 0);
         let username = urlParts.pop()?.split('?')[0] || '';
+        
+        // Если последний элемент был 'profile', берем предыдущий (для ссылок picuki)
+        if (username === 'profile' && urlParts.length > 0) {
+          username = urlParts.pop() || '';
+        }
+        
         if (!username) continue;
         
         const url = `https://www.picuki.com/profile/${username}`;
-        console.log(`Parsing Instagram via Picuki: ${url}`);
+        debugInfo.push(`Trying Picuki: ${url}`);
         
         const response = await axios.get(url, { 
           headers: { 
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5'
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
           },
-          timeout: 10000
+          timeout: 15000,
+          validateStatus: () => true // Получаем любой статус для отладки
         });
+
+        if (response.status !== 200) {
+          debugInfo.push(`Picuki error ${response.status} for ${username}`);
+          continue;
+        }
+
         const html = response.data;
         
-        // Picuki post description regex (более гибкий вариант)
+        // Более широкий поиск описаний (Picuki может менять верстку)
+        // Ищем все div с классом photo-description
         const descRegex = /<div class="photo-description">([\s\S]*?)<\/div>/g;
-        const matches = Array.from(html.matchAll(descRegex)).slice(0, 5);
-
-        console.log(`Found ${matches.length} potential posts for ${username}`);
-
-        for (const m of matches) {
-          let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
-          if (text && text.length > 5) {
+        let match;
+        let count = 0;
+        
+        while ((match = descRegex.exec(html)) !== null && count < 5) {
+          let text = match[1].replace(/<[^>]+>/g, '').trim();
+          // Декодируем HTML-сущности (например &quot;)
+          text = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'");
+          
+          if (text && text.length > 3) {
             allArticles.push({
               id: Math.random().toString(36).substr(2, 9),
               source: `Instagram: ${username}`,
@@ -71,8 +87,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               timestamp: 'Instagram',
               status: 'pending'
             });
+            count++;
           }
         }
+        debugInfo.push(`Found ${count} posts for ${username}`);
       } else {
         // Telegram parsing
         const username = sourceUrl.replace('@', '');
@@ -96,10 +114,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(`Failed to parse ${sourceUrl}`, e);
+      debugInfo.push(`Error parsing ${sourceUrl}: ${e.message}`);
     }
   }
 
+  // Если статей нет, но были ошибки — можем вернуть их для отладки (опционально)
+  // return res.status(200).json(allArticles.length > 0 ? allArticles : { debug: debugInfo });
   return res.status(200).json(allArticles);
 }
