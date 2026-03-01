@@ -27,13 +27,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'POST') {
     const { url } = req.body;
-    const cleanUrl = url.startsWith('@') ? url : `@${url}`;
+    let cleanUrl = url.trim();
+    
+    // Auto-detect type
+    if (cleanUrl.includes('instagram.com/')) {
+      // It's already an Instagram URL
+    } else if (cleanUrl.startsWith('@')) {
+      // Telegram handle
+    } else if (!cleanUrl.startsWith('http')) {
+      // Assume Telegram if it's just a handle without @
+      cleanUrl = `@${cleanUrl}`;
+    }
 
     const { data, error } = await supabase
       .from('sources')
       .insert([{ 
         user_id: userId, 
-        url: cleanUrl
+        url: cleanUrl,
+        is_active: true
       }])
       .select()
       .single();

@@ -742,9 +742,16 @@ const App: React.FC = () => {
           {activeTab === 'sources' && (
              <div className="max-w-2xl space-y-6">
                 <div className="glass p-6 sm:p-8 rounded-[32px] sm:rounded-[40px] border border-slate-800">
-                  <h3 className="text-xl font-bold text-white mb-6">Источник (Telegram)</h3>
+                  <h3 className="text-xl font-bold text-white mb-6">Добавить источник</h3>
+                  <p className="text-xs text-slate-500 mb-4">Поддерживаются Telegram (@channel) и Instagram (ссылка на профиль).</p>
                   <form onSubmit={handleAddSource} className="flex flex-col sm:flex-row gap-4">
-                    <input type="text" placeholder="@channel_name" value={newSourceUrl} onChange={e => setNewSourceUrl(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl px-6 py-4 text-white outline-none" />
+                    <input 
+                      type="text" 
+                      placeholder="@channel или instagram.com/user" 
+                      value={newSourceUrl} 
+                      onChange={e => setNewSourceUrl(e.target.value)} 
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl px-6 py-4 text-white outline-none" 
+                    />
                     <button className="bg-indigo-600 py-4 sm:py-0 px-8 rounded-xl sm:rounded-2xl font-bold text-white flex justify-center items-center"><Plus /></button>
                   </form>
                 </div>

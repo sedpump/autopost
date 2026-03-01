@@ -28,29 +28,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const allArticles: any[] = [];
 
   // 2. Парсим каждый канал
-  for (const username of requestedSources) {
+  for (const sourceUrl of requestedSources) {
     try {
-      const url = `https://t.me/s/${username.replace('@', '')}`;
-      const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const html = response.data;
-      
-      const messageRegex = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/g;
-      const matches = Array.from(html.matchAll(messageRegex)).reverse().slice(0, 3);
+      if (sourceUrl.includes('instagram.com/') || sourceUrl.includes('picuki.com/')) {
+        // Instagram parsing via Picuki
+        let username = sourceUrl.split('/').pop()?.split('?')[0] || '';
+        if (!username) continue;
+        
+        const url = `https://www.picuki.com/profile/${username}`;
+        const response = await axios.get(url, { 
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36' 
+          } 
+        });
+        const html = response.data;
+        
+        // Picuki post description regex
+        const descRegex = /<div class="photo-description">([\s\S]*?)<\/div>/g;
+        const matches = Array.from(html.matchAll(descRegex)).slice(0, 3);
 
-      for (const m of matches) {
-        let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
-        if (text) {
-          allArticles.push({
-            id: Math.random().toString(36).substr(2, 9),
-            source: username,
-            originalText: text,
-            timestamp: 'Just now',
-            status: 'pending'
-          });
+        for (const m of matches) {
+          let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
+          if (text && text.length > 10) {
+            allArticles.push({
+              id: Math.random().toString(36).substr(2, 9),
+              source: `Instagram: ${username}`,
+              originalText: text,
+              timestamp: 'Instagram',
+              status: 'pending'
+            });
+          }
+        }
+      } else {
+        // Telegram parsing
+        const username = sourceUrl.replace('@', '');
+        const url = `https://t.me/s/${username}`;
+        const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const html = response.data;
+        
+        const messageRegex = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/g;
+        const matches = Array.from(html.matchAll(messageRegex)).reverse().slice(0, 3);
+
+        for (const m of matches) {
+          let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
+          if (text) {
+            allArticles.push({
+              id: Math.random().toString(36).substr(2, 9),
+              source: sourceUrl,
+              originalText: text,
+              timestamp: 'Telegram',
+              status: 'pending'
+            });
+          }
         }
       }
     } catch (e) {
-      console.error(`Failed to parse ${username}`, e);
+      console.error(`Failed to parse ${sourceUrl}`, e);
     }
   }
 
