@@ -12,7 +12,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: "API_KEY не настроен." });
   }
 
-  const cleanText = (text: string) => text ? text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").trim() : "";
+  const cleanText = (text: any): string => typeof text === 'string' ? text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "").trim() : "";
   const ai = new GoogleGenAI({ apiKey });
 
   try {
@@ -23,11 +23,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!input) throw new Error("Пустой текст для обработки");
 
       let promptInstruction = "";
-      // Сохраняем лимиты для Telegram (1024 символа подпись к фото)
+      let variantDescriptions = "";
+
       if (length === 'post') {
-        promptInstruction = "Сгенерируй 3 коротких, емких варианта поста (максимум 700-800 символов каждый). Пиши живым языком, используй 2-3 эмодзи. Фокусируйся на пользе для клиента.";
-      } else if (length === 'article' || length === 'longread') {
-        promptInstruction = "Сгенерируй 3 экспертных текста. Максимальный объем — 850 символов. Пиши профессионально, но доступно. Избегай шаблонных фраз.";
+        promptInstruction = "Сгенерируй 3 коротких, емких варианта поста (600-1000 символов каждый). Пиши живым языком, используй 2-3 эмодзи. Фокусируйся на пользе для клиента.";
+        variantDescriptions = `
+        Вариант 1: Полезный инсайт.
+        Вариант 2: Практический совет.
+        Вариант 3: Краткий разбор ситуации.`;
+      } else if (length === 'article') {
+        promptInstruction = "Сгенерируй 2 развернутых экспертных статьи (2500-4000 символов каждая). Используй подзаголовки, списки и глубокую аналитику. Пиши профессионально, но доступно.";
+        variantDescriptions = `
+        Вариант 1: Аналитическая статья с глубоким разбором.
+        Вариант 2: Практическое руководство (How-to) с пошаговым планом.`;
+      } else if (length === 'longread') {
+        promptInstruction = "Сгенерируй 1 максимально подробный и структурированный лонгрид (от 5000 символов). Это должен быть полноценный экспертный материал, гайд или исследование. Используй четкую структуру: введение, несколько глав с подзаголовками, маркированные списки, важные выноски и итоговое заключение.";
+        variantDescriptions = `
+        Вариант 1: Полноценный лонгрид-исследование.`;
       }
 
       const refinementNote = comment ? `\nДОПОЛНИТЕЛЬНОЕ ПОЖЕЛАНИЕ ОТ ПОЛЬЗОВАТЕЛЯ: "${comment}". Обязательно учти это.` : "";
@@ -42,9 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         model: 'gemini-3-flash-preview',
         contents: `${promptInstruction} ${refinementNote} ${companyContext} 
         ИТОГОВЫЙ ТЕКСТ ДОЛЖЕН БЫТЬ СТРОГО НА РУССКОМ ЯЗЫКЕ.
-        Вариант 1: Полезный инсайт.
-        Вариант 2: Практический совет.
-        Вариант 3: Краткий разбор ситуации.
+        ${variantDescriptions}
         Исходная тема: ${input}`,
         config: { 
           temperature: 0.8,
@@ -68,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         },
       });
-      return res.status(200).json(JSON.parse(response.text));
+      return res.status(200).json(JSON.parse(response.text || "{}"));
     }
 
     if (task === 'vision') {
@@ -91,7 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
       });
-      return res.status(200).json(JSON.parse(response.text));
+      return res.status(200).json(JSON.parse(response.text || "{}"));
     }
 
     if (task === 'image') {
@@ -110,7 +120,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       });
 
-      const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+      const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (part?.inlineData) {
         return res.status(200).json({ base64: part.inlineData.data });
       }

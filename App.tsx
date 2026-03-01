@@ -267,7 +267,12 @@ const App: React.FC = () => {
       return;
     }
     setIsProcessing(true);
-    setProcessingStatus(comment ? 'Gemini корректирует текст...' : `Gemini пишет ${postLength === 'post' ? 'пост' : 'статью'}...`);
+    const lengthLabels: Record<string, string> = {
+      'post': 'пост',
+      'article': 'статью',
+      'longread': 'лонгрид'
+    };
+    setProcessingStatus(comment ? 'Gemini корректирует текст...' : `Gemini пишет ${lengthLabels[postLength]}...`);
     try {
       const variants = await rewriteArticle(baseText, postLength, comment);
       if (activeTab === 'creator') {
@@ -556,7 +561,14 @@ const App: React.FC = () => {
                          onClick={() => handleManualAiRewrite(textComment)} 
                          className="bg-indigo-600 hover:bg-indigo-500 px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl sm:rounded-[24px] font-black text-white flex items-center justify-center gap-2 transition-all shadow-xl shadow-indigo-600/20"
                        >
-                         {textComment ? <><RefreshCcw size={20}/> Перегенерировать</> : <><Wand2 size={20}/> {postLength === 'post' ? 'Написать пост' : 'Написать статью'}</>}
+                         {textComment ? (
+                           <><RefreshCcw size={20}/> Перегенерировать</>
+                         ) : (
+                           <>
+                             <Wand2 size={20}/> 
+                             {postLength === 'post' ? 'Написать пост' : postLength === 'article' ? 'Написать статью' : 'Написать лонгрид'}
+                           </>
+                         )}
                        </button>
                        
                        <div className="flex flex-col sm:flex-row bg-slate-900/50 p-1.5 sm:p-2 rounded-xl sm:rounded-[24px] border border-slate-800 gap-2 items-center">
