@@ -33,64 +33,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const allArticles: any[] = [];
 
   // 2. Парсим каждый канал
-  const debugInfo: any[] = [];
   for (const sourceUrl of requestedSources) {
     try {
       if (sourceUrl.includes('instagram.com/') || sourceUrl.includes('picuki.com/')) {
-        // Instagram parsing via Picuki
-        const urlParts = sourceUrl.split('/').filter((p: string) => p.length > 0);
-        let username = urlParts.pop()?.split('?')[0] || '';
-        
-        // Если последний элемент был 'profile', берем предыдущий (для ссылок picuki)
-        if (username === 'profile' && urlParts.length > 0) {
-          username = urlParts.pop() || '';
-        }
-        
-        if (!username) continue;
-        
-        const url = `https://www.picuki.com/profile/${username}`;
-        debugInfo.push(`Trying Picuki: ${url}`);
-        
-        const response = await axios.get(url, { 
-          headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7'
-          },
-          timeout: 15000,
-          validateStatus: () => true // Получаем любой статус для отладки
-        });
-
-        if (response.status !== 200) {
-          debugInfo.push(`Picuki error ${response.status} for ${username}`);
-          continue;
-        }
-
-        const html = response.data;
-        
-        // Более широкий поиск описаний (Picuki может менять верстку)
-        // Ищем все div с классом photo-description
-        const descRegex = /<div class="photo-description">([\s\S]*?)<\/div>/g;
-        let match;
-        let count = 0;
-        
-        while ((match = descRegex.exec(html)) !== null && count < 5) {
-          let text = match[1].replace(/<[^>]+>/g, '').trim();
-          // Декодируем HTML-сущности (например &quot;)
-          text = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'");
-          
-          if (text && text.length > 3) {
-            allArticles.push({
-              id: Math.random().toString(36).substr(2, 9),
-              source: `Instagram: ${username}`,
-              originalText: text,
-              timestamp: 'Instagram',
-              status: 'pending'
-            });
-            count++;
-          }
-        }
-        debugInfo.push(`Found ${count} posts for ${username}`);
+        // Instagram parsing is now handled by Gemini in the frontend
+        continue;
       } else {
         // Telegram parsing
         const username = sourceUrl.replace('@', '');
@@ -116,7 +63,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     } catch (e: any) {
       console.error(`Failed to parse ${sourceUrl}`, e);
-      debugInfo.push(`Error parsing ${sourceUrl}: ${e.message}`);
     }
   }
 

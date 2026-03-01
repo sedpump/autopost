@@ -44,3 +44,22 @@ export const generateImageForArticle = async (prompt: string, aspectRatio: '1:1'
   const data = await response.json();
   return `data:image/png;base64,${data.base64}`;
 };
+
+export const fetchInstagramPosts = async (profileUrl: string): Promise<any[]> => {
+  const response = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      task: 'fetch_instagram', 
+      payload: { url: profileUrl } 
+    })
+  });
+  
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || "Не удалось получить посты из Instagram");
+  }
+  
+  const data = await response.json();
+  return data.articles || [];
+};

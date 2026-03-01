@@ -16,6 +16,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const ai = new GoogleGenAI({ apiKey });
 
   try {
+    if (task === 'fetch_instagram') {
+      const url = payload.url;
+      if (!url) throw new Error("URL не указан");
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Найди и извлеки текст последних 3-х постов из этого профиля Instagram: ${url}. 
+        Верни результат в формате JSON со списком статей. 
+        Каждая статья должна иметь: originalText (текст поста), source (имя профиля), timestamp (дата или просто "Instagram").
+        Если не можешь получить доступ напрямую, используй свои знания о последних событиях этого аккаунта или поисковые инструменты.`,
+        config: {
+          tools: [{ urlContext: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              articles: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    originalText: { type: Type.STRING },
+                    source: { type: Type.STRING },
+                    timestamp: { type: Type.STRING }
+                  },
+                  required: ["originalText", "source", "timestamp"]
+                }
+              }
+            },
+            required: ["articles"]
+          }
+        }
+      });
+      return res.status(200).json(JSON.parse(response.text || "{}"));
+    }
+
     if (task === 'rewrite') {
       const input = cleanText(payload.text);
       const length = payload.length || 'post';

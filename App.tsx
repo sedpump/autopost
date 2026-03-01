@@ -62,7 +62,7 @@ import {
   MessageSquareQuote
 } from 'lucide-react';
 import { Platform, Article, PostingStatus, Source, Account, User, RewriteVariant } from './types';
-import { rewriteArticle, generateImageForArticle, extractVisualPrompt } from './geminiService';
+import { rewriteArticle, generateImageForArticle, extractVisualPrompt, fetchInstagramPosts } from './geminiService';
 import { 
   login, 
   fetchInbox, 
@@ -134,9 +134,31 @@ const App: React.FC = () => {
         fetchSources(),
         fetchAccounts()
       ]);
-      setArticles(newArticles);
+      
       setSources(newSources);
       setAccounts(newAccounts);
+      
+      let allArticles = [...newArticles];
+      
+      // Fetch Instagram posts via Gemini for each Instagram source
+      const instagramSources = newSources.filter(s => s.url.includes('instagram.com/'));
+      
+      if (instagramSources.length > 0) {
+        setProcessingStatus('Gemini сканирует Instagram...');
+        const instagramResults = await Promise.all(
+          instagramSources.map(s => fetchInstagramPosts(s.url).catch(err => {
+            console.error(`Failed to fetch IG for ${s.url}`, err);
+            return [];
+          }))
+        );
+        
+        instagramResults.forEach(posts => {
+          allArticles = [...allArticles, ...posts];
+        });
+      }
+      
+      setArticles(allArticles);
+      
       if (selectedAccountIds.length === 0) {
         setSelectedAccountIds(newAccounts.map(a => a.id));
       }
@@ -144,6 +166,7 @@ const App: React.FC = () => {
       console.error(e);
     } finally {
       setIsFetching(false);
+      setProcessingStatus('');
     }
   };
 
