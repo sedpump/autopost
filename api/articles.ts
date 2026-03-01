@@ -14,13 +14,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const userId = auth.replace('Bearer ', '');
 
   // 1. Достаем источники пользователя из БД
-  const { data: sources, error } = await supabase
+  const { data: sources, error: dbError } = await supabase
     .from('sources')
     .select('url')
     .eq('user_id', userId)
     .eq('is_active', true);
 
-  if (error || !sources || sources.length === 0) {
+  if (dbError) {
+    console.error('Supabase error:', dbError);
+    return res.status(500).json({ error: 'Ошибка базы данных' });
+  }
+
+  if (!sources || sources.length === 0) {
     return res.status(200).json([]); // Нет источников — нет статей
   }
 
@@ -32,24 +37,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       if (sourceUrl.includes('instagram.com/') || sourceUrl.includes('picuki.com/')) {
         // Instagram parsing via Picuki
-        let username = sourceUrl.split('/').pop()?.split('?')[0] || '';
+        // Улучшенное извлечение username (учитываем слеши в конце)
+        const urlParts = sourceUrl.split('/').filter((p: string) => p.length > 0);
+        let username = urlParts.pop()?.split('?')[0] || '';
         if (!username) continue;
         
         const url = `https://www.picuki.com/profile/${username}`;
+        console.log(`Parsing Instagram via Picuki: ${url}`);
+        
         const response = await axios.get(url, { 
           headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36' 
-          } 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5'
+          },
+          timeout: 10000
         });
         const html = response.data;
         
-        // Picuki post description regex
+        // Picuki post description regex (более гибкий вариант)
         const descRegex = /<div class="photo-description">([\s\S]*?)<\/div>/g;
-        const matches = Array.from(html.matchAll(descRegex)).slice(0, 3);
+        const matches = Array.from(html.matchAll(descRegex)).slice(0, 5);
+
+        console.log(`Found ${matches.length} potential posts for ${username}`);
 
         for (const m of matches) {
           let text = (m as any)[1].replace(/<[^>]+>/g, '').trim();
-          if (text && text.length > 10) {
+          if (text && text.length > 5) {
             allArticles.push({
               id: Math.random().toString(36).substr(2, 9),
               source: `Instagram: ${username}`,
