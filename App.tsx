@@ -455,6 +455,7 @@ const App: React.FC = () => {
       case Platform.DZEN: return <Layout size={20} />;
       case Platform.TENCHAT: return <Smartphone size={20} />;
       case Platform.PIKABU: return <Flame size={20} />;
+      case Platform.MAX: return <Radio size={20} />;
       default: return <Zap size={20} />;
     }
   };
@@ -872,7 +873,13 @@ const App: React.FC = () => {
                    <input placeholder="Instagram ID (numeric)" value={newAccCreds.igUserId || ''} onChange={e => setNewAccCreds({...newAccCreds, igUserId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-6 py-4 text-white outline-none text-sm" />
                 </div>
               )}
-              <div className="flex gap-4 mt-8">
+               {newAccPlatform === Platform.MAX && (
+                 <div className="space-y-3">
+                    <input placeholder="Bot Token" value={newAccCreds.botToken || ''} onChange={e => setNewAccCreds({...newAccCreds, botToken: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-6 py-4 text-white outline-none text-sm" />
+                    <input placeholder="Chat ID" value={newAccCreds.chatId || ''} onChange={e => setNewAccCreds({...newAccCreds, chatId: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-6 py-4 text-white outline-none text-sm" />
+                 </div>
+               )}
+               <div className="flex gap-4 mt-8">
                 <button onClick={() => setShowAddAccount(false)} className="flex-1 py-4 text-slate-400 font-bold hover:bg-white/5 rounded-2xl transition-all">Отмена</button>
                 <button onClick={handleSaveAccount} className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl transition-all shadow-lg shadow-indigo-600/20">Сохранить</button>
               </div>

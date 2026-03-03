@@ -122,6 +122,60 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
   }
 }
 
+async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
+  const token = botToken.trim();
+  const id = chatId.trim();
+  
+  try {
+    const attachments: any[] = [];
+
+    if (image) {
+      // 1. Get upload URL
+      const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
+        headers: { 'Authorization': token }
+      });
+      const uploadUrl = uploadUrlRes.data.url;
+
+      // 2. Upload image
+      const buffer = await getImageBuffer(image);
+      if (buffer) {
+        const form = new FormData();
+        form.append('data', buffer, { filename: 'image.png' });
+        const uploadRes = await axios.post(uploadUrl, form, {
+          headers: {
+            ...form.getHeaders(),
+            'Authorization': token
+          }
+        });
+
+        // 3. Prepare attachment
+        // The response from upload is the payload for the attachment
+        attachments.push({
+          type: 'image',
+          payload: uploadRes.data
+        });
+      }
+    }
+
+    // 4. Send message
+    await axios.post(`https://platform-api.max.ru/messages`, {
+      chat_id: id,
+      text: text || '',
+      format: 'markdown',
+      attachments: attachments.length > 0 ? attachments : undefined
+    }, {
+      headers: { 
+        'Authorization': token,
+        'Content-Type': 'application/json'
+      },
+      timeout: 25000
+    });
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.message || err.message;
+    throw new Error(`Max Messenger error: ${errorMsg}`);
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).send('Not Allowed');
   const userId = req.headers.authorization?.replace('Bearer ', '');
@@ -153,6 +207,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else if (p === 'INSTAGRAM' || p === 'ИНСТАГРАМ') {
         const igUserId = acc.credentials.igUserId || acc.credentials.instagramId;
         await publishToInstagram(acc.credentials.accessToken, igUserId, text, image, isPreview);
+        results.push({ name: acc.name, status: 'success' });
+      } else if (p === 'MAX' || p === 'МАКС') {
+        await publishToMax(acc.credentials.botToken, acc.credentials.chatId, text, image);
         results.push({ name: acc.name, status: 'success' });
       } else {
         results.push({ name: acc.name, status: 'failed', error: 'Platform not implemented' });

@@ -5,7 +5,8 @@ export enum Platform {
   INSTAGRAM = 'Instagram',
   DZEN = 'Dzen',
   TENCHAT = 'TenChat',
-  PIKABU = 'Pikabu'
+  PIKABU = 'Pikabu',
+  MAX = 'Max'
 }
 
 export interface User {
