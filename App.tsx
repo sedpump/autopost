@@ -156,7 +156,13 @@ const App: React.FC = () => {
         let igCount = 0;
         instagramResults.forEach(posts => {
           if (posts && posts.length > 0) {
-            allArticles = [...allArticles, ...posts];
+            const formattedPosts = posts.map((p: any, idx: number) => ({
+              ...p,
+              id: `ig_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 5)}`,
+              userId: user?.id || '',
+              status: 'pending'
+            }));
+            allArticles = [...allArticles, ...formattedPosts];
             igCount += posts.length;
           }
         });

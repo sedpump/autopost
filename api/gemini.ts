@@ -21,14 +21,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!url) throw new Error("URL не указан");
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Найди и извлеки текст последних 3-х постов из этого профиля Instagram: ${url}. 
-        Используй инструменты поиска и доступа к URL, чтобы получить актуальные данные.
-        Верни результат в формате JSON со списком статей. 
-        Каждая статья должна иметь: originalText (текст поста), source (имя профиля), timestamp (дата или просто "Instagram").
-        Если не можешь получить доступ к конкретному посту, найди информацию о последних публикациях этого автора в сети.`,
+        model: 'gemini-3.1-pro-preview',
+        contents: `Твоя задача — найти текст последних 3-х постов из профиля Instagram: ${url}. 
+        
+        ИНСТРУКЦИЯ:
+        1. Используй Google Search, чтобы найти последние публикации этого аккаунта. Ищи цитаты, перепосты или кэшированные версии.
+        2. Если прямой доступ к Instagram заблокирован, найди упоминания этих постов на других ресурсах или в новостях.
+        3. Верни результат СТРОГО в формате JSON.
+        
+        Каждая статья должна иметь:
+        - originalText: полный текст поста (или максимально подробное описание, если текст недоступен целиком).
+        - source: название аккаунта (например, "fis_ipoteka").
+        - timestamp: примерная дата или время публикации.
+        
+        Если постов совсем не найдено, верни пустой список articles: [].`,
         config: {
-          tools: [{ urlContext: {} }, { googleSearch: {} }],
+          tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
