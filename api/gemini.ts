@@ -23,11 +23,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Найди и извлеки текст последних 3-х постов из этого профиля Instagram: ${url}. 
+        Используй инструменты поиска и доступа к URL, чтобы получить актуальные данные.
         Верни результат в формате JSON со списком статей. 
         Каждая статья должна иметь: originalText (текст поста), source (имя профиля), timestamp (дата или просто "Instagram").
-        Если не можешь получить доступ напрямую, используй свои знания о последних событиях этого аккаунта или поисковые инструменты.`,
+        Если не можешь получить доступ к конкретному посту, найди информацию о последних публикациях этого автора в сети.`,
         config: {
-          tools: [{ urlContext: {} }],
+          tools: [{ urlContext: {} }, { googleSearch: {} }],
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,

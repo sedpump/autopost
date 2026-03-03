@@ -148,13 +148,22 @@ const App: React.FC = () => {
         const instagramResults = await Promise.all(
           instagramSources.map(s => fetchInstagramPosts(s.url).catch(err => {
             console.error(`Failed to fetch IG for ${s.url}`, err);
+            // Optionally notify user about partial failure
             return [];
           }))
         );
         
+        let igCount = 0;
         instagramResults.forEach(posts => {
-          allArticles = [...allArticles, ...posts];
+          if (posts && posts.length > 0) {
+            allArticles = [...allArticles, ...posts];
+            igCount += posts.length;
+          }
         });
+        
+        if (igCount === 0 && instagramSources.length > 0) {
+          console.warn("No Instagram posts found or access denied.");
+        }
       }
       
       setArticles(allArticles);
@@ -706,6 +715,14 @@ const App: React.FC = () => {
 
           {activeTab === 'inbox' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {isFetching && articles.length === 0 && (
+                <div className="col-span-full py-20 text-center text-slate-500">
+                  <Loader2 size={48} className="mx-auto mb-4 animate-spin text-indigo-500" />
+                  <p className="font-medium">Ищем новые инфоповоды...</p>
+                  {processingStatus && <p className="text-xs mt-2 text-slate-600">{processingStatus}</p>}
+                </div>
+              )}
+              
               {articles.map(article => (
                 <div key={article.id} className="glass group p-6 sm:p-8 rounded-[28px] sm:rounded-[32px] border border-slate-800/50 flex flex-col h-full hover:border-indigo-500/30 transition-all">
                   <div className="flex justify-between items-center mb-6 text-[10px] font-bold text-indigo-400">
@@ -732,6 +749,13 @@ const App: React.FC = () => {
                 <div className="col-span-full py-20 text-center text-slate-500">
                   <Inbox size={48} className="mx-auto mb-4 opacity-10" />
                   <p className="font-medium">Входящих постов пока нет</p>
+                </div>
+              )}
+              
+              {isFetching && articles.length > 0 && (
+                <div className="fixed bottom-24 right-8 bg-indigo-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-10">
+                  <Loader2 size={18} className="animate-spin" />
+                  <span className="text-sm font-bold">Обновляем ленту...</span>
                 </div>
               )}
             </div>
