@@ -124,52 +124,80 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
 
 async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
   const token = botToken.trim();
-  const id = chatId.trim();
+  const rawId = chatId.trim().replace(/^@/, '');
+  const numericId = rawId.match(/\d+/)?.[0];
   
   try {
     const attachments: any[] = [];
 
     if (image) {
-      // 1. Get upload URL
-      const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
-        headers: { 'Authorization': token }
-      });
-      const uploadUrl = uploadUrlRes.data.url;
-
-      // 2. Upload image
-      const buffer = await getImageBuffer(image);
-      if (buffer) {
-        const form = new FormData();
-        form.append('data', buffer, { filename: 'image.png' });
-        const uploadRes = await axios.post(uploadUrl, form, {
-          headers: {
-            ...form.getHeaders(),
-            'Authorization': token
-          }
+      try {
+        // 1. Get upload URL
+        const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
+          headers: { 'Authorization': token }
         });
+        const uploadUrl = uploadUrlRes.data.url;
 
-        // 3. Prepare attachment
-        // The response from upload is the payload for the attachment
-        attachments.push({
-          type: 'image',
-          payload: uploadRes.data
-        });
+        // 2. Upload image
+        const buffer = await getImageBuffer(image);
+        if (buffer) {
+          const form = new FormData();
+          form.append('data', buffer, { filename: 'image.png' });
+          const uploadRes = await axios.post(uploadUrl, form, {
+            headers: {
+              ...form.getHeaders(),
+              'Authorization': token
+            }
+          });
+
+          // 3. Prepare attachment
+          attachments.push({
+            type: 'image',
+            payload: uploadRes.data
+          });
+        }
+      } catch (uploadErr) {
+        console.error("Max image upload failed, sending text only", uploadErr);
       }
     }
 
-    // 4. Send message
-    await axios.post(`https://platform-api.max.ru/messages`, {
-      chat_id: id,
-      text: text || '',
-      format: 'markdown',
-      attachments: attachments.length > 0 ? attachments : undefined
-    }, {
-      headers: { 
-        'Authorization': token,
-        'Content-Type': 'application/json'
-      },
-      timeout: 25000
-    });
+    const sendMessage = async (payload: any) => {
+      return axios.post(`https://platform-api.max.ru/messages`, {
+        ...payload,
+        text: text || '',
+        format: 'markdown',
+        attachments: attachments.length > 0 ? attachments : undefined
+      }, {
+        headers: { 
+          'Authorization': token,
+          'Content-Type': 'application/json'
+        },
+        timeout: 25000
+      });
+    };
+
+    // Try sending logic
+    try {
+      // If ID starts with 'id', it's likely a user_id
+      if (rawId.startsWith('id') && numericId) {
+        try {
+          await sendMessage({ user_id: numericId });
+          return;
+        } catch (e) {
+          // fall through to chat_id
+        }
+      }
+
+      // Try as chat_id
+      await sendMessage({ chat_id: rawId });
+    } catch (err: any) {
+      // If chat_id fails and we have a numeric ID, try user_id as last resort
+      if (numericId && rawId !== numericId) {
+        await sendMessage({ user_id: numericId });
+      } else {
+        throw err;
+      }
+    }
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
     throw new Error(`Max Messenger error: ${errorMsg}`);
