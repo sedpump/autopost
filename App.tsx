@@ -114,6 +114,12 @@ const App: React.FC = () => {
   const [manualText, setManualText] = useState('');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  
+  // Clear selection when switching tabs to prevent "ghost" selections
+  useEffect(() => {
+    setSelectedAccountIds([]);
+    setDeployResults(null);
+  }, [activeTab]);
   const [creatorVariants, setCreatorVariants] = useState<RewriteVariant[]>([]);
   const [postLength, setPostLength] = useState<'post' | 'article' | 'longread'>('post');
   const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16'>('16:9');

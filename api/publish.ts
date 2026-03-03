@@ -230,17 +230,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await publishToVK(acc.credentials.accessToken, acc.credentials.ownerId, text, image, isPreview);
         results.push({ name: acc.name, status: 'success' });
       } else if (p === 'TELEGRAM' || p === 'ТЕЛЕГРАМ') {
-        await publishToTelegram(acc.credentials.botToken, acc.credentials.chatId, text, image);
+        // Improved sanity check: only throw if it's definitely a Max-only ID format
+        // and even then, let's make it a more descriptive error.
+        const cId = acc.credentials.chatId || '';
+        if (cId.includes('_biz')) {
+          throw new Error(`Аккаунт "${acc.name}" настроен как Telegram, но содержит ID от платформы Max (${cId}). Пожалуйста, пересоздайте аккаунт, выбрав платформу Max.`);
+        }
+        await publishToTelegram(acc.credentials.botToken, cId, text, image);
         results.push({ name: acc.name, status: 'success' });
       } else if (p === 'INSTAGRAM' || p === 'ИНСТАГРАМ') {
         const igUserId = acc.credentials.igUserId || acc.credentials.instagramId;
+        if (!igUserId) throw new Error(`Аккаунт "${acc.name}": не указан Instagram ID`);
         await publishToInstagram(acc.credentials.accessToken, igUserId, text, image, isPreview);
         results.push({ name: acc.name, status: 'success' });
       } else if (p === 'MAX' || p === 'МАКС') {
         await publishToMax(acc.credentials.botToken, acc.credentials.chatId, text, image);
         results.push({ name: acc.name, status: 'success' });
       } else {
-        results.push({ name: acc.name, status: 'failed', error: 'Platform not implemented' });
+        results.push({ name: acc.name, status: 'failed', error: `Платформа "${acc.platform}" не поддерживается` });
       }
     } catch (e: any) {
       results.push({ name: acc.name, status: 'failed', error: e.message });
