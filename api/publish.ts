@@ -155,9 +155,9 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (e) { console.error("Max upload failed", e); }
       }
 
-      // We will try a wide range of common field names for recipient ID
+      // Documentation says user_id/chat_id are query params, while text/attachments are in body
       const attempts = [];
-      const idFields = ['chat_id', 'user_id', 'peer_id', 'recipient_id', 'to_id', 'channel_id'];
+      const idFields = ['chat_id', 'user_id']; // Documentation mentions these two specifically
       const idValues = Array.from(new Set([rawId, cleanId, numericId].filter(Boolean) as string[]));
 
       for (const field of idFields) {
@@ -167,14 +167,14 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
       }
 
       let lastErr = null;
-      for (const payload of attempts) {
+      for (const params of attempts) {
         try {
           await axios.post(`https://platform-api.max.ru/messages`, {
-            ...payload,
             text: text || '',
             format: 'markdown',
             attachments: attachmentsLocal.length > 0 ? attachmentsLocal : undefined
           }, {
+            params: params, // IMPORTANT: Documentation requires IDs in query params
             headers: { 'Authorization': token, 'Content-Type': 'application/json' },
             timeout: 25000
           });
@@ -182,13 +182,10 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (err: any) {
           lastErr = err;
           const msg = (err.response?.data?.message || '').toLowerCase();
-          // If it's a recipient/not found error, we continue to the next attempt.
-          // If it's an auth error, we stop this token format and try the next one.
           if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized')) {
             throw err; 
           }
-          // For other errors (like "Unknown recipient"), we just log and try next ID
-          console.log(`Max attempt failed for ${JSON.stringify(payload)}: ${msg}`);
+          console.log(`Max attempt failed for ${JSON.stringify(params)}: ${msg}`);
         }
       }
       if (lastErr) throw lastErr;
