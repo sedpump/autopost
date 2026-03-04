@@ -123,7 +123,11 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
 }
 
 async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
-  const token = botToken.trim().startsWith('Bearer ') ? botToken.trim() : `Bearer ${botToken.trim()}`;
+  const rawToken = botToken.trim();
+  // We'll try both with and without Bearer if one fails, 
+  // but start with the raw token as it was working (authenticating) before.
+  const tokenFormats = [rawToken, `Bearer ${rawToken}`];
+  
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
   const numericId = cleanId.match(/\d+/)?.[0];
@@ -131,85 +135,75 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
   try {
     const attachments: any[] = [];
 
-    if (image) {
-      try {
-        // 1. Get upload URL
-        const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
-          headers: { 'Authorization': token }
-        });
-        const uploadUrl = uploadUrlRes.data.url;
-
-        // 2. Upload image
-        const buffer = await getImageBuffer(image);
-        if (buffer) {
-          const form = new FormData();
-          form.append('data', buffer, { filename: 'image.png' });
-          const uploadRes = await axios.post(uploadUrl, form, {
-            headers: {
-              ...form.getHeaders(),
-              'Authorization': token
-            }
+    // Helper to try sending with different tokens and IDs
+    const tryPublish = async (token: string) => {
+      const attachmentsLocal: any[] = [];
+      if (image) {
+        try {
+          const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
+            headers: { 'Authorization': token }
           });
-
-          // 3. Prepare attachment
-          attachments.push({
-            type: 'image',
-            payload: uploadRes.data
-          });
-        }
-      } catch (uploadErr) {
-        console.error("Max image upload failed, sending text only", uploadErr);
+          const buffer = await getImageBuffer(image);
+          if (buffer) {
+            const form = new FormData();
+            form.append('data', buffer, { filename: 'image.png' });
+            const uploadRes = await axios.post(uploadUrlRes.data.url, form, {
+              headers: { ...form.getHeaders(), 'Authorization': token }
+            });
+            attachmentsLocal.push({ type: 'image', payload: uploadRes.data });
+          }
+        } catch (e) { console.error("Max upload failed", e); }
       }
-    }
 
-    const sendMessage = async (payload: any) => {
-      return axios.post(`https://platform-api.max.ru/messages`, {
-        ...payload,
-        text: text || '',
-        format: 'markdown',
-        attachments: attachments.length > 0 ? attachments : undefined
-      }, {
-        headers: { 
-          'Authorization': token,
-          'Content-Type': 'application/json'
-        },
-        timeout: 25000
-      });
+      const attempts = [];
+      attempts.push({ chat_id: rawId });
+      if (cleanId !== rawId) attempts.push({ chat_id: cleanId });
+      if (numericId) {
+        attempts.push({ user_id: numericId });
+        attempts.push({ chat_id: numericId });
+      }
+
+      let lastErr = null;
+      for (const payload of attempts) {
+        try {
+          await axios.post(`https://platform-api.max.ru/messages`, {
+            ...payload,
+            text: text || '',
+            format: 'markdown',
+            attachments: attachmentsLocal.length > 0 ? attachmentsLocal : undefined
+          }, {
+            headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+            timeout: 25000
+          });
+          return true; // Success
+        } catch (err: any) {
+          lastErr = err;
+          const msg = err.response?.data?.message || '';
+          // If it's a recipient error, try next ID. If it's an auth error, we'll try next token format.
+          if (msg && !msg.toLowerCase().includes('recipient') && !msg.toLowerCase().includes('not found')) {
+            throw err;
+          }
+        }
+      }
+      if (lastErr) throw lastErr;
+      return false;
     };
 
-    // Try multiple ID combinations to find the right one
-    const attempts = [];
-    
-    // 1. Try as chat_id with raw ID (e.g. @id123_biz)
-    attempts.push({ chat_id: rawId });
-    
-    // 2. Try as chat_id with clean ID (e.g. id123_biz)
-    if (cleanId !== rawId) {
-      attempts.push({ chat_id: cleanId });
-    }
-    
-    // 3. If it has numeric part, try as user_id and chat_id
-    if (numericId) {
-      attempts.push({ user_id: numericId });
-      attempts.push({ chat_id: numericId });
-    }
-
-    let lastError = null;
-    for (const payload of attempts) {
+    let finalError = null;
+    for (const t of tokenFormats) {
       try {
-        await sendMessage(payload);
-        return; // Success!
+        if (await tryPublish(t)) return;
       } catch (err: any) {
-        lastError = err;
-        // If it's not a 400/404 "Unknown recipient", maybe it's a real error we should stop at
-        const msg = err.response?.data?.message || '';
-        if (msg && !msg.toLowerCase().includes('recipient') && !msg.toLowerCase().includes('not found')) {
-          throw err;
+        finalError = err;
+        const msg = (err.response?.data?.message || '').toLowerCase();
+        // If it's not an auth error, don't bother trying other token formats
+        if (!msg.includes('token') && !msg.includes('auth') && !msg.includes('unauthorized')) {
+          break;
         }
       }
     }
 
-    if (lastError) throw lastError;
+    if (finalError) throw finalError;
 
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
