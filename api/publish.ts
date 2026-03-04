@@ -155,12 +155,15 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (e) { console.error("Max upload failed", e); }
       }
 
+      // We will try a wide range of common field names for recipient ID
       const attempts = [];
-      attempts.push({ chat_id: rawId });
-      if (cleanId !== rawId) attempts.push({ chat_id: cleanId });
-      if (numericId) {
-        attempts.push({ user_id: numericId });
-        attempts.push({ chat_id: numericId });
+      const idFields = ['chat_id', 'user_id', 'peer_id', 'recipient_id', 'to_id', 'channel_id'];
+      const idValues = Array.from(new Set([rawId, cleanId, numericId].filter(Boolean) as string[]));
+
+      for (const field of idFields) {
+        for (const value of idValues) {
+          attempts.push({ [field]: value });
+        }
       }
 
       let lastErr = null;
@@ -175,14 +178,17 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
             headers: { 'Authorization': token, 'Content-Type': 'application/json' },
             timeout: 25000
           });
-          return true; // Success
+          return true; // Success!
         } catch (err: any) {
           lastErr = err;
-          const msg = err.response?.data?.message || '';
-          // If it's a recipient error, try next ID. If it's an auth error, we'll try next token format.
-          if (msg && !msg.toLowerCase().includes('recipient') && !msg.toLowerCase().includes('not found')) {
-            throw err;
+          const msg = (err.response?.data?.message || '').toLowerCase();
+          // If it's a recipient/not found error, we continue to the next attempt.
+          // If it's an auth error, we stop this token format and try the next one.
+          if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized')) {
+            throw err; 
           }
+          // For other errors (like "Unknown recipient"), we just log and try next ID
+          console.log(`Max attempt failed for ${JSON.stringify(payload)}: ${msg}`);
         }
       }
       if (lastErr) throw lastErr;
