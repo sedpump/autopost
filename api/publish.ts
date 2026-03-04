@@ -123,33 +123,21 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
 }
 
 async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
-  const rawToken = botToken.trim();
-  const tokenFormats = [rawToken, `Bearer ${rawToken}`];
-  
+  const token = botToken.trim();
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
-  const noIdPrefix = cleanId.replace(/^id/, '');
   const numericStr = cleanId.match(/\d+/)?.[0] || '';
   const numericVal = numericStr ? parseInt(numericStr, 10) : null;
   
   // Potential ID values to try
-  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericStr].filter(Boolean) as string[]));
+  const idValues: (string | number)[] = [rawId, cleanId];
+  if (numericVal) {
+    idValues.push(numericVal);
+    idValues.push(-numericVal); // Try negative ID (common for channels/groups)
+  }
   
   try {
-    const tryWithToken = async (token: string) => {
-      // 1. Verify token first
-      try {
-        await axios.get('https://platform-api.max.ru/me', {
-          headers: { 'Authorization': token }
-        });
-      } catch (authErr: any) {
-        const msg = (authErr.response?.data?.message || '').toLowerCase();
-        if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized') || authErr.response?.status === 401) {
-          throw new Error('AUTH_FAILED');
-        }
-      }
-
-      // 2. Handle image upload if needed
+    const trySend = async (idParams: any) => {
       let attachments: any[] | undefined = undefined;
       if (image) {
         try {
@@ -168,79 +156,64 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (e) { console.error("Max upload failed", e); }
       }
 
-      // 3. Try different ID combinations
-      const idFields = ['chat_id', 'user_id'];
-      let lastErr = null;
-
-      // Attempt strategy: 
-      // A. Try as Query Params (as per docs)
-      // B. Try as Body Params (fallback)
-      for (const field of idFields) {
+      const fields = ['chat_id', 'user_id'];
+      for (const field of fields) {
         for (const val of idValues) {
-          const payloads = [val];
-          if (numericVal && val === numericStr) payloads.push(numericVal as any);
-
-          for (const finalVal of payloads) {
-            const idObj = { [field]: finalVal };
-            
-            // Try A: Query Params
-            try {
-              await axios.post(`https://platform-api.max.ru/messages`, {
-                text: text || '',
-                format: 'markdown',
-                attachments
-              }, {
-                params: idObj,
-                headers: { 'Authorization': token, 'Content-Type': 'application/json' },
-                timeout: 20000
-              });
-              return true;
-            } catch (err: any) {
-              lastErr = err;
-              if (err.response?.status === 401) throw new Error('AUTH_FAILED');
-            }
-
-            // Try B: Body Params
-            try {
-              await axios.post(`https://platform-api.max.ru/messages`, {
-                ...idObj,
-                text: text || '',
-                format: 'markdown',
-                attachments
-              }, {
-                headers: { 'Authorization': token, 'Content-Type': 'application/json' },
-                timeout: 20000
-              });
-              return true;
-            } catch (err: any) {
-              lastErr = err;
-              if (err.response?.status === 401) throw new Error('AUTH_FAILED');
-            }
+          try {
+            const params = { [field]: val };
+            await axios.post(`https://platform-api.max.ru/messages`, {
+              text: text || '',
+              format: 'markdown',
+              attachments
+            }, {
+              params,
+              headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+              timeout: 20000
+            });
+            return true;
+          } catch (err: any) {
+            const msg = (err.response?.data?.message || '').toLowerCase();
+            if (err.response?.status === 401) throw new Error('AUTH_FAILED');
+            // Continue to next combination if not found
           }
         }
       }
-      if (lastErr) throw lastErr;
       return false;
     };
 
-    let finalError = null;
-    for (const t of tokenFormats) {
-      try {
-        if (await tryWithToken(t)) return;
-      } catch (err: any) {
-        if (err.message === 'AUTH_FAILED') {
-          finalError = err;
-          continue; // Try next token format
-        }
-        finalError = err;
-        break; // Real error, don't try other tokens
+    // 1. Try direct send first
+    if (await trySend({})) return;
+
+    // 2. If direct send fails, try to DISCOVER the chat ID from the bot's chat list
+    try {
+      const chatsRes = await axios.get('https://platform-api.max.ru/chats', {
+        headers: { 'Authorization': token }
+      });
+      const chats = chatsRes.data.chats || [];
+      
+      // Look for a chat that matches the provided ID string in some way
+      const targetChat = chats.find((c: any) => 
+        String(c.chat_id) === numericStr || 
+        String(c.link).includes(cleanId) || 
+        String(c.title).includes(cleanId)
+      );
+
+      if (targetChat) {
+        console.log(`Discovered Max chat ID: ${targetChat.chat_id} for ${rawId}`);
+        // Try sending specifically to this discovered ID
+        idValues.length = 0;
+        idValues.push(targetChat.chat_id);
+        if (await trySend({})) return;
       }
+    } catch (discoveryErr) {
+      console.error("Max discovery failed", discoveryErr);
     }
-    if (finalError) throw finalError;
+
+    throw new Error('Chat not found or bot has no access');
 
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
-    throw new Error(`Max Messenger error: ${errorMsg === 'AUTH_FAILED' ? 'Invalid or expired token' : errorMsg}`);
+    throw new Error(`Max Messenger error: ${errorMsg === 'AUTH_FAILED' ? 'Invalid token' : errorMsg}`);
   }
 }
 
