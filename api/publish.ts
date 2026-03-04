@@ -123,9 +123,10 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
 }
 
 async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
-  const token = botToken.trim();
-  const rawId = chatId.trim().replace(/^@/, '');
-  const numericId = rawId.match(/\d+/)?.[0];
+  const token = botToken.trim().startsWith('Bearer ') ? botToken.trim() : `Bearer ${botToken.trim()}`;
+  const rawId = chatId.trim();
+  const cleanId = rawId.replace(/^@/, '');
+  const numericId = cleanId.match(/\d+/)?.[0];
   
   try {
     const attachments: any[] = [];
@@ -176,28 +177,40 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
       });
     };
 
-    // Try sending logic
-    try {
-      // If ID starts with 'id', it's likely a user_id
-      if (rawId.startsWith('id') && numericId) {
-        try {
-          await sendMessage({ user_id: numericId });
-          return;
-        } catch (e) {
-          // fall through to chat_id
+    // Try multiple ID combinations to find the right one
+    const attempts = [];
+    
+    // 1. Try as chat_id with raw ID (e.g. @id123_biz)
+    attempts.push({ chat_id: rawId });
+    
+    // 2. Try as chat_id with clean ID (e.g. id123_biz)
+    if (cleanId !== rawId) {
+      attempts.push({ chat_id: cleanId });
+    }
+    
+    // 3. If it has numeric part, try as user_id and chat_id
+    if (numericId) {
+      attempts.push({ user_id: numericId });
+      attempts.push({ chat_id: numericId });
+    }
+
+    let lastError = null;
+    for (const payload of attempts) {
+      try {
+        await sendMessage(payload);
+        return; // Success!
+      } catch (err: any) {
+        lastError = err;
+        // If it's not a 400/404 "Unknown recipient", maybe it's a real error we should stop at
+        const msg = err.response?.data?.message || '';
+        if (msg && !msg.toLowerCase().includes('recipient') && !msg.toLowerCase().includes('not found')) {
+          throw err;
         }
       }
-
-      // Try as chat_id
-      await sendMessage({ chat_id: rawId });
-    } catch (err: any) {
-      // If chat_id fails and we have a numeric ID, try user_id as last resort
-      if (numericId && rawId !== numericId) {
-        await sendMessage({ user_id: numericId });
-      } else {
-        throw err;
-      }
     }
+
+    if (lastError) throw lastError;
+
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
     throw new Error(`Max Messenger error: ${errorMsg}`);
