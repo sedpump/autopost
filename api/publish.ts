@@ -124,20 +124,27 @@ async function publishToInstagram(accessToken: string, igUserId: string, text: s
 
 async function publishToMax(botToken: string, chatId: string, text: string, image?: string) {
   const rawToken = botToken.trim();
-  // We'll try both with and without Bearer if one fails, 
-  // but start with the raw token as it was working (authenticating) before.
   const tokenFormats = [rawToken, `Bearer ${rawToken}`];
   
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
+  const noIdPrefix = cleanId.replace(/^id/, '');
   const numericId = cleanId.match(/\d+/)?.[0];
   
-  try {
-    const attachments: any[] = [];
+  // Try all combinations of IDs that might be valid
+  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericId].filter(Boolean) as string[]));
+  const idFields = ['chat_id', 'user_id'];
+  
+  const attempts: any[] = [];
+  for (const val of idValues) {
+    for (const field of idFields) {
+      attempts.push({ [field]: val });
+    }
+  }
 
-    // Helper to try sending with different tokens and IDs
-    const tryPublish = async (token: string) => {
-      const attachmentsLocal: any[] = [];
+  try {
+    const tryWithToken = async (token: string) => {
+      let attachments: any[] | undefined = undefined;
       if (image) {
         try {
           const uploadUrlRes = await axios.post(`https://platform-api.max.ru/uploads?type=image`, {}, {
@@ -150,20 +157,9 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
             const uploadRes = await axios.post(uploadUrlRes.data.url, form, {
               headers: { ...form.getHeaders(), 'Authorization': token }
             });
-            attachmentsLocal.push({ type: 'image', payload: uploadRes.data });
+            attachments = [{ type: 'image', payload: uploadRes.data }];
           }
         } catch (e) { console.error("Max upload failed", e); }
-      }
-
-      // Documentation says user_id/chat_id are query params, while text/attachments are in body
-      const attempts = [];
-      const idFields = ['chat_id', 'user_id']; // Documentation mentions these two specifically
-      const idValues = Array.from(new Set([rawId, cleanId, numericId].filter(Boolean) as string[]));
-
-      for (const field of idFields) {
-        for (const value of idValues) {
-          attempts.push({ [field]: value });
-        }
       }
 
       let lastErr = null;
@@ -172,9 +168,9 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
           await axios.post(`https://platform-api.max.ru/messages`, {
             text: text || '',
             format: 'markdown',
-            attachments: attachmentsLocal.length > 0 ? attachmentsLocal : undefined
+            attachments
           }, {
-            params: params, // IMPORTANT: Documentation requires IDs in query params
+            params: params,
             headers: { 'Authorization': token, 'Content-Type': 'application/json' },
             timeout: 25000
           });
@@ -182,10 +178,11 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (err: any) {
           lastErr = err;
           const msg = (err.response?.data?.message || '').toLowerCase();
+          // If it's an auth error, we should try the next token format
           if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized')) {
             throw err; 
           }
-          console.log(`Max attempt failed for ${JSON.stringify(params)}: ${msg}`);
+          // For "not found" or "recipient" errors, we continue to the next ID attempt
         }
       }
       if (lastErr) throw lastErr;
@@ -195,17 +192,16 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
     let finalError = null;
     for (const t of tokenFormats) {
       try {
-        if (await tryPublish(t)) return;
+        if (await tryWithToken(t)) return;
       } catch (err: any) {
         finalError = err;
         const msg = (err.response?.data?.message || '').toLowerCase();
-        // If it's not an auth error, don't bother trying other token formats
+        // If it's not an auth error, don't try other tokens
         if (!msg.includes('token') && !msg.includes('auth') && !msg.includes('unauthorized')) {
           break;
         }
       }
     }
-
     if (finalError) throw finalError;
 
   } catch (err: any) {
