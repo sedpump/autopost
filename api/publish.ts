@@ -129,11 +129,12 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
   const noIdPrefix = cleanId.replace(/^id/, '');
-  const numericId = cleanId.match(/\d+/)?.[0];
+  const numericOnly = cleanId.match(/\d+/)?.[0] || '';
+  const numericBiz = numericOnly ? `${numericOnly}_biz` : '';
   
   // Try all combinations of IDs that might be valid
-  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericId].filter(Boolean) as string[]));
-  const idFields = ['chat_id', 'user_id'];
+  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericOnly, numericBiz].filter(Boolean) as string[]));
+  const idFields = ['chat_id', 'user_id', 'peer_id'];
   
   const attempts: any[] = [];
   for (const val of idValues) {
@@ -163,14 +164,16 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
       }
 
       let lastErr = null;
-      for (const params of attempts) {
+      for (const idParam of attempts) {
         try {
+          // Try sending with ID in both params AND body for maximum compatibility
           await axios.post(`https://platform-api.max.ru/messages`, {
+            ...idParam, // Try in body
             text: text || '',
             format: 'markdown',
             attachments
           }, {
-            params: params,
+            params: idParam, // Try in query params
             headers: { 'Authorization': token, 'Content-Type': 'application/json' },
             timeout: 25000
           });
@@ -178,11 +181,9 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (err: any) {
           lastErr = err;
           const msg = (err.response?.data?.message || '').toLowerCase();
-          // If it's an auth error, we should try the next token format
           if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized')) {
             throw err; 
           }
-          // For "not found" or "recipient" errors, we continue to the next ID attempt
         }
       }
       if (lastErr) throw lastErr;
@@ -196,7 +197,6 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
       } catch (err: any) {
         finalError = err;
         const msg = (err.response?.data?.message || '').toLowerCase();
-        // If it's not an auth error, don't try other tokens
         if (!msg.includes('token') && !msg.includes('auth') && !msg.includes('unauthorized')) {
           break;
         }
