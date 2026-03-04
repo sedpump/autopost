@@ -126,18 +126,23 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
   const token = botToken.trim();
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
+  const noIdPrefix = cleanId.replace(/^id/, '');
   const numericStr = cleanId.match(/\d+/)?.[0] || '';
   const numericVal = numericStr ? parseInt(numericStr, 10) : null;
   
   // Potential ID values to try
-  const idValues: (string | number)[] = [rawId, cleanId];
+  const idValues: (string | number)[] = [rawId, cleanId, noIdPrefix];
   if (numericVal) {
     idValues.push(numericVal);
-    idValues.push(-numericVal); // Try negative ID (common for channels/groups)
+    idValues.push(-numericVal);
+    // Also try numeric with _biz suffix if it was there
+    if (cleanId.includes('_biz')) {
+      idValues.push(`${numericStr}_biz`);
+    }
   }
   
   try {
-    const trySend = async (idParams: any) => {
+    const trySend = async (ids: (string | number)[]) => {
       let attachments: any[] | undefined = undefined;
       if (image) {
         try {
@@ -158,58 +163,58 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
 
       const fields = ['chat_id', 'user_id'];
       for (const field of fields) {
-        for (const val of idValues) {
+        for (const val of ids) {
           try {
-            const params = { [field]: val };
             await axios.post(`https://platform-api.max.ru/messages`, {
               text: text || '',
               format: 'markdown',
               attachments
             }, {
-              params,
+              params: { [field]: val },
               headers: { 'Authorization': token, 'Content-Type': 'application/json' },
               timeout: 20000
             });
             return true;
           } catch (err: any) {
-            const msg = (err.response?.data?.message || '').toLowerCase();
             if (err.response?.status === 401) throw new Error('AUTH_FAILED');
-            // Continue to next combination if not found
           }
         }
       }
       return false;
     };
 
-    // 1. Try direct send first
-    if (await trySend({})) return;
+    // 1. Try direct send first with all variations
+    if (await trySend(idValues)) return;
 
-    // 2. If direct send fails, try to DISCOVER the chat ID from the bot's chat list
+    // 2. Discovery mode
+    let availableChatsInfo = "";
     try {
       const chatsRes = await axios.get('https://platform-api.max.ru/chats', {
         headers: { 'Authorization': token }
       });
       const chats = chatsRes.data.chats || [];
       
-      // Look for a chat that matches the provided ID string in some way
-      const targetChat = chats.find((c: any) => 
-        String(c.chat_id) === numericStr || 
-        String(c.link).includes(cleanId) || 
-        String(c.title).includes(cleanId)
-      );
+      if (chats.length === 0) {
+        availableChatsInfo = "Бот не видит ни одного чата. Убедитесь, что он добавлен в канал/группу и является администратором.";
+      } else {
+        availableChatsInfo = "Доступные чаты бота: " + chats.map((c: any) => `${c.title} (ID: ${c.chat_id})`).join(", ");
+        
+        // Try to find by title or link
+        const targetChat = chats.find((c: any) => 
+          String(c.chat_id) === numericStr || 
+          String(c.link).includes(cleanId) || 
+          String(c.title).toLowerCase().includes(cleanId.toLowerCase())
+        );
 
-      if (targetChat) {
-        console.log(`Discovered Max chat ID: ${targetChat.chat_id} for ${rawId}`);
-        // Try sending specifically to this discovered ID
-        idValues.length = 0;
-        idValues.push(targetChat.chat_id);
-        if (await trySend({})) return;
+        if (targetChat) {
+          if (await trySend([targetChat.chat_id])) return;
+        }
       }
     } catch (discoveryErr) {
       console.error("Max discovery failed", discoveryErr);
     }
 
-    throw new Error('Chat not found or bot has no access');
+    throw new Error(`Чат не найден. ${availableChatsInfo}`);
 
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
