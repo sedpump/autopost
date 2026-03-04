@@ -129,22 +129,27 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
   const rawId = chatId.trim();
   const cleanId = rawId.replace(/^@/, '');
   const noIdPrefix = cleanId.replace(/^id/, '');
-  const numericOnly = cleanId.match(/\d+/)?.[0] || '';
-  const numericBiz = numericOnly ? `${numericOnly}_biz` : '';
+  const numericStr = cleanId.match(/\d+/)?.[0] || '';
+  const numericVal = numericStr ? parseInt(numericStr, 10) : null;
   
-  // Try all combinations of IDs that might be valid
-  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericOnly, numericBiz].filter(Boolean) as string[]));
-  const idFields = ['chat_id', 'user_id', 'peer_id'];
+  // Potential ID values to try
+  const idValues = Array.from(new Set([rawId, cleanId, noIdPrefix, numericStr].filter(Boolean) as string[]));
   
-  const attempts: any[] = [];
-  for (const val of idValues) {
-    for (const field of idFields) {
-      attempts.push({ [field]: val });
-    }
-  }
-
   try {
     const tryWithToken = async (token: string) => {
+      // 1. Verify token first
+      try {
+        await axios.get('https://platform-api.max.ru/me', {
+          headers: { 'Authorization': token }
+        });
+      } catch (authErr: any) {
+        const msg = (authErr.response?.data?.message || '').toLowerCase();
+        if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized') || authErr.response?.status === 401) {
+          throw new Error('AUTH_FAILED');
+        }
+      }
+
+      // 2. Handle image upload if needed
       let attachments: any[] | undefined = undefined;
       if (image) {
         try {
@@ -163,26 +168,54 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
         } catch (e) { console.error("Max upload failed", e); }
       }
 
+      // 3. Try different ID combinations
+      const idFields = ['chat_id', 'user_id'];
       let lastErr = null;
-      for (const idParam of attempts) {
-        try {
-          // Try sending with ID in both params AND body for maximum compatibility
-          await axios.post(`https://platform-api.max.ru/messages`, {
-            ...idParam, // Try in body
-            text: text || '',
-            format: 'markdown',
-            attachments
-          }, {
-            params: idParam, // Try in query params
-            headers: { 'Authorization': token, 'Content-Type': 'application/json' },
-            timeout: 25000
-          });
-          return true; // Success!
-        } catch (err: any) {
-          lastErr = err;
-          const msg = (err.response?.data?.message || '').toLowerCase();
-          if (msg.includes('token') || msg.includes('auth') || msg.includes('unauthorized')) {
-            throw err; 
+
+      // Attempt strategy: 
+      // A. Try as Query Params (as per docs)
+      // B. Try as Body Params (fallback)
+      for (const field of idFields) {
+        for (const val of idValues) {
+          const payloads = [val];
+          if (numericVal && val === numericStr) payloads.push(numericVal as any);
+
+          for (const finalVal of payloads) {
+            const idObj = { [field]: finalVal };
+            
+            // Try A: Query Params
+            try {
+              await axios.post(`https://platform-api.max.ru/messages`, {
+                text: text || '',
+                format: 'markdown',
+                attachments
+              }, {
+                params: idObj,
+                headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+                timeout: 20000
+              });
+              return true;
+            } catch (err: any) {
+              lastErr = err;
+              if (err.response?.status === 401) throw new Error('AUTH_FAILED');
+            }
+
+            // Try B: Body Params
+            try {
+              await axios.post(`https://platform-api.max.ru/messages`, {
+                ...idObj,
+                text: text || '',
+                format: 'markdown',
+                attachments
+              }, {
+                headers: { 'Authorization': token, 'Content-Type': 'application/json' },
+                timeout: 20000
+              });
+              return true;
+            } catch (err: any) {
+              lastErr = err;
+              if (err.response?.status === 401) throw new Error('AUTH_FAILED');
+            }
           }
         }
       }
@@ -195,18 +228,19 @@ async function publishToMax(botToken: string, chatId: string, text: string, imag
       try {
         if (await tryWithToken(t)) return;
       } catch (err: any) {
-        finalError = err;
-        const msg = (err.response?.data?.message || '').toLowerCase();
-        if (!msg.includes('token') && !msg.includes('auth') && !msg.includes('unauthorized')) {
-          break;
+        if (err.message === 'AUTH_FAILED') {
+          finalError = err;
+          continue; // Try next token format
         }
+        finalError = err;
+        break; // Real error, don't try other tokens
       }
     }
     if (finalError) throw finalError;
 
   } catch (err: any) {
     const errorMsg = err.response?.data?.message || err.message;
-    throw new Error(`Max Messenger error: ${errorMsg}`);
+    throw new Error(`Max Messenger error: ${errorMsg === 'AUTH_FAILED' ? 'Invalid or expired token' : errorMsg}`);
   }
 }
 
