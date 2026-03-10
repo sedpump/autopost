@@ -1,11 +1,11 @@
 
 import { RewriteVariant } from './types';
 
-export const rewriteArticle = async (text: string, length: 'post' | 'article' | 'longread' = 'post', comment?: string): Promise<RewriteVariant[]> => {
+export const rewriteArticle = async (text: string, length: 'post' | 'article' | 'longread' = 'post', comment?: string, platform?: string): Promise<RewriteVariant[]> => {
   const response = await fetch('/api/gemini', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task: 'rewrite', payload: { text, length, comment } })
+    body: JSON.stringify({ task: 'rewrite', payload: { text, length, comment, platform } })
   });
   
   if (!response.ok) {

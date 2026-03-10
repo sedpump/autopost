@@ -66,12 +66,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const input = cleanText(payload.text);
       const length = payload.length || 'post';
       const comment = cleanText(payload.comment);
+      const platform = payload.platform; // New parameter
       if (!input) throw new Error("Пустой текст для обработки");
 
       let promptInstruction = "";
       let variantDescriptions = "";
 
-      if (length === 'post') {
+      if (platform === 'telegram') {
+        promptInstruction = `Сгенерируй 3 варианта поста специально для Telegram. 
+        СТИЛЬ: "Телеграмный" — живой, вовлекающий, с ОБИЛИЕМ тематических эмодзи (как в примере: 🔹, 🆕, ➡️, 🔔, 🔵).
+        СТРУКТУРА: Используй четкое разделение на абзацы, списки с буллитами-эмодзи, важные акценты выделяй жирным.
+        ОГРАНИЧЕНИЯ: Каждый вариант должен быть до 1000 символов (чтобы поместиться в подпись к фото).
+        ФОКУС: Польза для клиента, экспертность.`;
+        variantDescriptions = `
+        Вариант 1: Структурированный разбор (как в примере пользователя).
+        Вариант 2: Эмоциональный и вовлекающий пост с призывом к действию.
+        Вариант 3: Краткая сводка новостей/изменений.`;
+      } else if (length === 'post') {
         promptInstruction = "Сгенерируй 3 коротких, емких варианта поста (600-1000 символов каждый). Пиши живым языком, используй 2-3 эмодзи. Фокусируйся на пользе для клиента.";
         variantDescriptions = `
         Вариант 1: Полезный инсайт.

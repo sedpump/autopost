@@ -83,7 +83,7 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : null;
   });
   
-  const [activeTab, setActiveTab] = useState<'inbox' | 'sources' | 'accounts' | 'settings' | 'creator'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'sources' | 'accounts' | 'settings' | 'creator' | 'tg_creator'>('inbox');
   const [articles, setArticles] = useState<Article[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -318,8 +318,9 @@ const App: React.FC = () => {
     };
     setProcessingStatus(comment ? 'Gemini корректирует текст...' : `Gemini пишет ${lengthLabels[postLength]}...`);
     try {
-      const variants = await rewriteArticle(baseText, postLength, comment);
-      if (activeTab === 'creator') {
+      const platform = activeTab === 'tg_creator' ? 'telegram' : undefined;
+      const variants = await rewriteArticle(baseText, postLength, comment, platform);
+      if (activeTab === 'creator' || activeTab === 'tg_creator') {
         setCreatorVariants(variants);
       } else if (selectedArticle) {
         setSelectedArticle({ ...selectedArticle, rewrittenVariants: variants, rewrittenText: variants[0].content, selectedVariantIndex: 0 });
@@ -514,6 +515,9 @@ const App: React.FC = () => {
           <button onClick={() => setActiveTab('creator')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'creator' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
             <PlusCircle size={20} /> <span className="font-medium">Создать пост</span>
           </button>
+          <button onClick={() => setActiveTab('tg_creator')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'tg_creator' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Send size={20} /> <span className="font-medium">Посты в Телеграм</span>
+          </button>
           <div className="h-px bg-slate-800 my-4 opacity-50"></div>
           <button onClick={() => setActiveTab('inbox')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inbox' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Inbox size={20} /> <span className="font-medium">Входящие</span>
@@ -538,7 +542,7 @@ const App: React.FC = () => {
         <header className="sticky top-0 z-10 glass px-4 sm:px-10 py-4 flex justify-between items-center border-b border-slate-800/50">
           <div className="flex items-center gap-3">
              <div className="lg:hidden bg-indigo-600 p-2 rounded-lg"><Radio size={20} className="text-white"/></div>
-             <h2 className="text-lg font-bold text-white capitalize">{activeTab === 'creator' ? 'Создать пост' : activeTab}</h2>
+             <h2 className="text-lg font-bold text-white capitalize">{activeTab === 'creator' ? 'Создать пост' : activeTab === 'tg_creator' ? 'Посты в Телеграм' : activeTab}</h2>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
              <div className="hidden sm:flex items-center gap-2 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
@@ -549,17 +553,27 @@ const App: React.FC = () => {
         </header>
 
         <div className="p-4 sm:p-10 max-w-7xl mx-auto">
-          {activeTab === 'creator' && (
+          {(activeTab === 'creator' || activeTab === 'tg_creator') && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-10 animate-in fade-in duration-500">
                <div className="lg:col-span-8 space-y-6 sm:space-y-8">
                   <div className="glass p-6 sm:p-10 rounded-[32px] sm:rounded-[48px] border border-slate-800 relative">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 sm:mb-10">
-                      <h3 className="text-xl sm:text-2xl font-black text-white flex items-center gap-3"><PenTool className="text-indigo-500"/> Редактор</h3>
-                      <div className="flex bg-slate-900/80 p-1 rounded-xl sm:rounded-2xl border border-slate-800 gap-1 w-full sm:w-auto">
-                         <button onClick={() => setPostLength('post')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'post' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Пост</button>
-                         <button onClick={() => setPostLength('article')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'article' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Статья</button>
-                         <button onClick={() => setPostLength('longread')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'longread' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Лонгрид</button>
-                      </div>
+                      <h3 className="text-xl sm:text-2xl font-black text-white flex items-center gap-3">
+                        {activeTab === 'tg_creator' ? <Send className="text-indigo-500"/> : <PenTool className="text-indigo-500"/>} 
+                        {activeTab === 'tg_creator' ? 'Telegram Редактор' : 'Редактор'}
+                      </h3>
+                      {activeTab === 'creator' && (
+                        <div className="flex bg-slate-900/80 p-1 rounded-xl sm:rounded-2xl border border-slate-800 gap-1 w-full sm:w-auto">
+                           <button onClick={() => setPostLength('post')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'post' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Пост</button>
+                           <button onClick={() => setPostLength('article')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'article' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Статья</button>
+                           <button onClick={() => setPostLength('longread')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black uppercase transition-all ${postLength === 'longread' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}>Лонгрид</button>
+                        </div>
+                      )}
+                      {activeTab === 'tg_creator' && (
+                        <div className="px-4 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                          Telegram Style
+                        </div>
+                      )}
                     </div>
 
                     {creatorVariants.length > 0 && (
@@ -661,19 +675,21 @@ const App: React.FC = () => {
                     
                     <div className="space-y-2 sm:space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                        {!deployResults ? (
-                         accounts.map(acc => (
-                           <button 
-                             key={acc.id} 
-                             onClick={() => toggleAccountSelection(acc.id)}
-                             className={`w-full p-4 sm:p-5 rounded-xl sm:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
-                           >
-                             <div className="flex items-center gap-3 sm:gap-4">
-                               <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
-                               <span className="font-bold text-sm truncate max-w-[150px]">{acc.name}</span>
-                             </div>
-                             {selectedAccountIds.includes(acc.id) ? <CheckCircle size={18} className="text-indigo-400"/> : <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-800"></div>}
-                           </button>
-                         ))
+                         accounts
+                           .filter(acc => activeTab === 'tg_creator' ? acc.platform === Platform.TELEGRAM : true)
+                           .map(acc => (
+                             <button 
+                               key={acc.id} 
+                               onClick={() => toggleAccountSelection(acc.id)}
+                               className={`w-full p-4 sm:p-5 rounded-xl sm:rounded-2xl border flex items-center justify-between transition-all ${selectedAccountIds.includes(acc.id) ? 'bg-indigo-600/10 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
+                             >
+                               <div className="flex items-center gap-3 sm:gap-4">
+                                 <div className={selectedAccountIds.includes(acc.id) ? 'text-indigo-400' : 'text-slate-700'}>{renderAccountIcon(acc.platform)}</div>
+                                 <span className="font-bold text-sm truncate max-w-[150px]">{acc.name}</span>
+                               </div>
+                               {selectedAccountIds.includes(acc.id) ? <CheckCircle size={18} className="text-indigo-400"/> : <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-800"></div>}
+                             </button>
+                           ))
                        ) : (
                          deployResults.length > 0 ? deployResults.map((res: any, idx: number) => (
                            <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-1 ${res.status === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
